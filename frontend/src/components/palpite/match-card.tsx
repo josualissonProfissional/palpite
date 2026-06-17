@@ -1,0 +1,417 @@
+"use client";
+
+import { useState } from "react";
+import {
+  CalendarCheckIcon,
+  CalendarClockIcon,
+  CalendarOffIcon,
+  ClockIcon,
+  ListChecksIcon,
+  LockIcon,
+  RadioIcon,
+  TrophyIcon,
+  UsersIcon,
+  XCircleIcon,
+} from "lucide-react";
+import { EmptyState } from "@/components/palpite/empty-state";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { Match } from "@/lib/palpite-data";
+import { TeamFlag } from "@/components/palpite/team-flag";
+import { PredictionStepper } from "@/components/palpite/prediction-stepper";
+import { SavePredictionButton } from "@/components/palpite/save-prediction-button";
+import { useLiveMatches } from "@/hooks/use-live-matches";
+import { LiveBoard } from "@/components/palpite/live-board";
+import { LiveRanking } from "@/components/palpite/live-ranking";
+import { SharePredictions, type SharePrediction } from "@/components/palpite/share-predictions";
+
+const statusCopy: Record<Match["status"], string> = {
+  live: "Ao vivo",
+  scheduled: "Aberto",
+  finished: "Finalizado",
+  locked: "Bloqueado",
+};
+
+const scoreStatusCopy: Record<NonNullable<Match["scoreStatus"]>, string> = {
+  pending: "Pendente",
+  correct: "Acertou",
+  partial: "Parcial",
+  wrong: "Errou",
+  inverse_penalty: "Errou",
+};
+
+function dateKey(value: Date | string) {
+  return new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: "America/Recife",
+  }).format(new Date(value));
+}
+
+function tomorrowKey() {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return dateKey(tomorrow);
+}
+
+function MatchGrid({
+  matches,
+  groupId,
+  emptyTitle,
+  emptyDescription,
+}: {
+  matches: Match[];
+  groupId?: string;
+  emptyTitle: string;
+  emptyDescription: string;
+}) {
+  if (matches.length === 0) {
+    return (
+      <EmptyState
+        icon={CalendarOffIcon}
+        title={emptyTitle}
+        description={emptyDescription}
+      />
+    );
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+      {matches.map((match) => (
+        <MatchCard key={match.id} match={match} groupId={groupId} />
+      ))}
+    </div>
+  );
+}
+
+export function MatchList({
+  matches,
+  groupId,
+  groupName = "Meu bolao",
+}: {
+  matches: Match[];
+  groupId?: string;
+  groupName?: string;
+}) {
+  const { matches: liveMatches, connected } = useLiveMatches(matches);
+
+  if (liveMatches.length === 0) {
+    return (
+      <EmptyState
+        icon={CalendarOffIcon}
+        title="Nenhum jogo encontrado"
+        description="Os jogos da Copa 2026 aparecem aqui assim que a tabela for divulgada."
+      />
+    );
+  }
+
+  const today = dateKey(new Date());
+  const tomorrow = tomorrowKey();
+  const matchesByDate = {
+    today: liveMatches.filter((match) => dateKey(match.dateTime) === today),
+    tomorrow: liveMatches.filter((match) => dateKey(match.dateTime) === tomorrow),
+    past: liveMatches.filter((match) => dateKey(match.dateTime) < today),
+  };
+  const defaultGamesTab =
+    matchesByDate.today.length > 0
+      ? "today"
+      : matchesByDate.tomorrow.length > 0
+        ? "tomorrow"
+        : "past";
+
+  return (
+    <Tabs defaultValue="games" className="gap-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <TabsList className="h-auto w-full flex-wrap justify-start gap-1 sm:w-fit">
+          <TabsTrigger value="games" className="h-9 px-3">
+            <CalendarClockIcon className="size-4" />
+            Jogos
+          </TabsTrigger>
+          <TabsTrigger value="mine" className="h-9 px-3">
+            <ListChecksIcon className="size-4" />
+            Meus palpites
+          </TabsTrigger>
+          <TabsTrigger value="geral" className="h-9 px-3">
+            <UsersIcon className="size-4" />
+            Geral
+          </TabsTrigger>
+        </TabsList>
+        <Badge
+          variant={connected ? "default" : "secondary"}
+          className="gap-1"
+          title={connected ? "Conectado ao placar ao vivo" : "Conectando ao placar ao vivo"}
+        >
+          <RadioIcon className={connected ? "size-3 animate-pulse" : "size-3"} />
+          {connected ? "Ao vivo conectado" : "Conectando..."}
+        </Badge>
+      </div>
+
+      <TabsContent value="games">
+        <Tabs defaultValue={defaultGamesTab} className="gap-4">
+          <TabsList className="h-auto w-full flex-wrap justify-start gap-1 sm:w-fit">
+            <TabsTrigger value="today" className="h-9 px-3">
+              Jogos de hoje
+              <Badge variant="secondary">{matchesByDate.today.length}</Badge>
+            </TabsTrigger>
+            <TabsTrigger value="past" className="h-9 px-3">
+              Jogos passados
+              <Badge variant="secondary">{matchesByDate.past.length}</Badge>
+            </TabsTrigger>
+            <TabsTrigger value="tomorrow" className="h-9 px-3">
+              Jogos de amanha
+              <Badge variant="secondary">{matchesByDate.tomorrow.length}</Badge>
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="today">
+            <MatchGrid
+              matches={matchesByDate.today}
+              groupId={groupId}
+              emptyTitle="Nenhum jogo hoje"
+              emptyDescription="Quando houver jogo marcado para hoje, ele aparece aqui."
+            />
+          </TabsContent>
+          <TabsContent value="past">
+            <MatchGrid
+              matches={matchesByDate.past}
+              groupId={groupId}
+              emptyTitle="Nenhum jogo passado"
+              emptyDescription="Os jogos finalizados ou com data anterior aparecem aqui."
+            />
+          </TabsContent>
+          <TabsContent value="tomorrow">
+            <MatchGrid
+              matches={matchesByDate.tomorrow}
+              groupId={groupId}
+              emptyTitle="Nenhum jogo amanha"
+              emptyDescription="Quando houver jogo marcado para amanha, ele aparece aqui."
+            />
+          </TabsContent>
+        </Tabs>
+      </TabsContent>
+
+      <TabsContent value="mine">
+        <MyPredictionsPanel matches={liveMatches} groupName={groupName} />
+      </TabsContent>
+
+      <TabsContent value="geral" className="space-y-4">
+        <LiveRanking groupId={groupId} />
+        <LiveBoard groupId={groupId} />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function MyPredictionsPanel({ matches, groupName }: { matches: Match[]; groupName: string }) {
+  const predictions = matches.filter(
+    (match) =>
+      typeof match.predictedHome === "number" &&
+      typeof match.predictedAway === "number",
+  );
+  const correct = predictions.filter((match) => match.scoreStatus === "correct").length;
+  const wrong = predictions.filter(
+    (match) => match.scoreStatus === "wrong" || match.scoreStatus === "inverse_penalty",
+  ).length;
+  const totalPoints = predictions.reduce((total, match) => total + (match.points ?? 0), 0);
+
+  if (predictions.length === 0) {
+    return (
+      <EmptyState
+        icon={ListChecksIcon}
+        title="Nenhum palpite salvo"
+        description="Salve um palpite em um jogo aberto para acompanhar sua pontuacao aqui."
+      />
+    );
+  }
+
+  const shareData: SharePrediction[] = predictions.map((match) => ({
+    home: match.home.shortName,
+    away: match.away.shortName,
+    predictedHome: match.predictedHome as number,
+    predictedAway: match.predictedAway as number,
+    status: match.scoreStatus,
+    points: match.points,
+  }));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-medium text-muted-foreground">
+          {predictions.length} palpites · {totalPoints} pts
+        </p>
+        <SharePredictions groupName={groupName} predictions={shareData} totalPoints={totalPoints} />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Card className="border-white/70 bg-white/86 shadow-sm dark:border-white/10 dark:bg-slate-950/70">
+          <CardContent className="flex items-center gap-3 pt-0">
+            <div className="flex size-10 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+              <CalendarCheckIcon className="size-5" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Acertou</p>
+              <p className="text-2xl font-semibold">{correct}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-white/70 bg-white/86 shadow-sm dark:border-white/10 dark:bg-slate-950/70">
+          <CardContent className="flex items-center gap-3 pt-0">
+            <div className="flex size-10 items-center justify-center rounded-lg bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300">
+              <XCircleIcon className="size-5" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Errou</p>
+              <p className="text-2xl font-semibold">{wrong}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-white/70 bg-white/86 shadow-sm dark:border-white/10 dark:bg-slate-950/70">
+          <CardContent className="flex items-center gap-3 pt-0">
+            <div className="flex size-10 items-center justify-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+              <TrophyIcon className="size-5" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Pontos</p>
+              <p className="text-2xl font-semibold">{totalPoints}</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-3">
+        {predictions.map((match) => (
+          <PredictionSummaryCard key={match.id} match={match} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PredictionSummaryCard({ match }: { match: Match }) {
+  const points = match.points ?? 0;
+  const scoreStatus = match.scoreStatus ?? "pending";
+
+  return (
+    <Card className="border-white/70 bg-white/86 shadow-sm dark:border-white/10 dark:bg-slate-950/70">
+      <CardHeader className="flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+        <div>
+          <CardTitle className="text-sm">
+            {match.home.shortName} x {match.away.shortName}
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">{match.date}</p>
+        </div>
+        <Badge variant={scoreStatus === "correct" ? "default" : "secondary"}>
+          {scoreStatusCopy[scoreStatus]}
+        </Badge>
+      </CardHeader>
+      <CardContent className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
+        <div className="grid gap-2">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Seu palpite</span>
+            <span className="font-semibold">
+              {match.predictedHome} x {match.predictedAway}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Resultado</span>
+            <span className="font-semibold">
+              {match.homeScore ?? "-"} x {match.awayScore ?? "-"}
+            </span>
+          </div>
+          {match.scoreReason ? (
+            <p className="text-sm text-muted-foreground">{match.scoreReason}</p>
+          ) : (
+            <p className="text-sm text-muted-foreground">Aguardando resultado.</p>
+          )}
+        </div>
+        <div className="rounded-lg bg-slate-950 px-3 py-2 text-center text-sm font-semibold text-white">
+          {points > 0 ? "+" : ""}
+          {points} pts
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MatchCard({ match, groupId }: { match: Match; groupId?: string }) {
+  const isLocked =
+    match.status === "locked" || match.status === "live" || match.status === "finished";
+  const [prediction, setPrediction] = useState({
+    home: match.predictedHome ?? 0,
+    away: match.predictedAway ?? 0,
+  });
+
+  return (
+    <Card className="overflow-hidden border-white/70 bg-white/86 shadow-sm backdrop-blur dark:border-white/10 dark:bg-slate-950/70">
+      <CardHeader className="flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {match.date}
+          </p>
+          <p className="text-sm text-muted-foreground">{match.venue}</p>
+        </div>
+        <Badge
+          className="gap-1"
+          variant={match.status === "live" ? "destructive" : "secondary"}
+        >
+          {match.status === "live" ? (
+            <RadioIcon className="size-3" />
+          ) : isLocked ? (
+            <LockIcon className="size-3" />
+          ) : (
+            <ClockIcon className="size-3" />
+          )}
+          {statusCopy[match.status]}
+        </Badge>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-3">
+          <TeamFlag team={match.home} showName className="justify-start" />
+          <div
+            className={`rounded-lg px-2 py-2 text-center text-base font-bold text-white transition-colors sm:px-3 sm:text-lg ${
+              match.status === "live"
+                ? "bg-red-600 ring-2 ring-red-400/60 ring-offset-1 ring-offset-background animate-pulse"
+                : "bg-slate-950"
+            }`}
+          >
+            {match.homeScore ?? "-"} : {match.awayScore ?? "-"}
+          </div>
+          <TeamFlag team={match.away} showName className="justify-end text-right" />
+        </div>
+        <PredictionStepper
+          home={match.home}
+          away={match.away}
+          initialHome={match.predictedHome ?? 0}
+          initialAway={match.predictedAway ?? 0}
+          onChange={setPrediction}
+          disabled={isLocked}
+        />
+        {match.scoreReason ? (
+          <div className="rounded-lg border bg-white/70 p-3 text-sm dark:border-white/10 dark:bg-slate-950/60">
+            <span className="font-semibold">{match.scoreReason}</span>
+            {typeof match.points === "number" ? (
+              <span className="ml-2 text-muted-foreground">
+                {match.points > 0 ? "+" : ""}
+                {match.points} pts
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <span className="text-sm font-medium text-muted-foreground">
+            {match.lockLabel}
+          </span>
+          <SavePredictionButton
+            disabled={isLocked}
+            groupId={groupId}
+            matchId={match.id}
+            predictedHomeScore={prediction.home}
+            predictedAwayScore={prediction.away}
+            scoreStatus={match.scoreStatus}
+          />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

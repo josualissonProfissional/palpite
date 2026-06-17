@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT_ROOT="/home/josue/palpite"
+PROJECT_REF="zhlpxcdvsbfvjhmospbx"
+TOKEN_FILE="${SUPABASE_ACCESS_TOKEN_FILE:-$HOME/.config/palpite/supabase_access_token}"
+
+case "$PWD/" in
+  "$PROJECT_ROOT"/*) ;;
+  *)
+    echo "[supabase-mcp-palpite] Refusing to run outside $PROJECT_ROOT." >&2
+    echo "[supabase-mcp-palpite] Current directory: $PWD" >&2
+    exit 1
+    ;;
+esac
+
+if [[ -n "${SUPABASE_ACCESS_TOKEN:-}" ]]; then
+  TOKEN="$SUPABASE_ACCESS_TOKEN"
+elif [[ -f "$TOKEN_FILE" ]]; then
+  TOKEN="$(tr -d '\r\n' < "$TOKEN_FILE")"
+else
+  echo "[supabase-mcp-palpite] Supabase Personal Access Token not found." >&2
+  echo "[supabase-mcp-palpite] Create $TOKEN_FILE with a Supabase PAT." >&2
+  echo "[supabase-mcp-palpite] Do not use anon, publishable, service_role, or sb_secret keys here." >&2
+  exit 1
+fi
+
+if [[ -z "$TOKEN" ]]; then
+  echo "[supabase-mcp-palpite] Supabase access token is empty." >&2
+  exit 1
+fi
+
+export SUPABASE_ACCESS_TOKEN="$TOKEN"
+exec npx -y @supabase/mcp-server-supabase@latest --project-ref="$PROJECT_REF"
+
