@@ -25,7 +25,6 @@ import { SavePredictionButton } from "@/components/palpite/save-prediction-butto
 import { useLiveMatches } from "@/hooks/use-live-matches";
 import { LiveBoard } from "@/components/palpite/live-board";
 import { LiveRanking } from "@/components/palpite/live-ranking";
-import { MagicBentoCard, MagicBentoGrid } from "@/components/palpite/magic-bento-card";
 import { ShareGroupSummary } from "@/components/palpite/share-group-summary";
 import { SharePredictions, type SharePrediction } from "@/components/palpite/share-predictions";
 
@@ -87,16 +86,11 @@ function MatchGrid({
   }
 
   return (
-    <MagicBentoGrid
-      className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3"
-      enableSpotlight
-      spotlightRadius={400}
-      glowColor="37, 99, 235"
-    >
+    <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
       {matches.map((match) => (
         <MatchCard key={match.id} match={match} groupId={groupId} />
       ))}
-    </MagicBentoGrid>
+    </div>
   );
 }
 
@@ -402,86 +396,75 @@ function MatchCard({ match, groupId }: { match: Match; groupId?: string }) {
   });
 
   return (
-    <MagicBentoCard
-      enableStars
-      enableBorderGlow
-      enableTilt={false}
-      enableMagnetism={false}
-      clickEffect
-      spotlightRadius={400}
-      particleCount={12}
-      glowColor={match.status === "live" ? "239, 68, 68" : "37, 99, 235"}
-    >
-      <Card className="h-full overflow-hidden border-white/70 bg-white/86 shadow-sm backdrop-blur dark:border-white/10 dark:bg-slate-950/70">
-        <CardHeader className="flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {match.date}
-            </p>
-            <p className="text-sm text-muted-foreground">{match.venue}</p>
-          </div>
-          <Badge
-            className="gap-1"
-            variant={match.status === "live" ? "destructive" : "secondary"}
+    <Card className="h-full overflow-hidden border-white/70 bg-white/86 shadow-sm backdrop-blur transition duration-200 hover:-translate-y-0.5 hover:shadow-lg dark:border-white/10 dark:bg-slate-950/70">
+      <CardHeader className="flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {match.date}
+          </p>
+          <p className="text-sm text-muted-foreground">{match.venue}</p>
+        </div>
+        <Badge
+          className="gap-1"
+          variant={match.status === "live" ? "destructive" : "secondary"}
+        >
+          {match.status === "live" ? (
+            <RadioIcon className="size-3" />
+          ) : isLocked ? (
+            <LockIcon className="size-3" />
+          ) : (
+            <ClockIcon className="size-3" />
+          )}
+          {statusCopy[match.status]}
+        </Badge>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-3">
+          <TeamFlag team={match.home} showName className="justify-start" />
+          <div
+            className={`rounded-lg px-2 py-2 text-center text-base font-bold text-white transition-colors sm:px-3 sm:text-lg ${
+              match.status === "live"
+                ? "bg-red-600 ring-2 ring-red-400/60 ring-offset-1 ring-offset-background animate-pulse"
+                : "bg-slate-950"
+            }`}
           >
-            {match.status === "live" ? (
-              <RadioIcon className="size-3" />
-            ) : isLocked ? (
-              <LockIcon className="size-3" />
-            ) : (
-              <ClockIcon className="size-3" />
-            )}
-            {statusCopy[match.status]}
-          </Badge>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-3">
-            <TeamFlag team={match.home} showName className="justify-start" />
-            <div
-              className={`rounded-lg px-2 py-2 text-center text-base font-bold text-white transition-colors sm:px-3 sm:text-lg ${
-                match.status === "live"
-                  ? "bg-red-600 ring-2 ring-red-400/60 ring-offset-1 ring-offset-background animate-pulse"
-                  : "bg-slate-950"
-              }`}
-            >
-              {match.homeScore ?? "-"} : {match.awayScore ?? "-"}
-            </div>
-            <TeamFlag team={match.away} showName className="justify-end text-right" />
+            {match.homeScore ?? "-"} : {match.awayScore ?? "-"}
           </div>
-          <PredictionStepper
-            home={match.home}
-            away={match.away}
-            initialHome={match.predictedHome ?? 0}
-            initialAway={match.predictedAway ?? 0}
-            onChange={setPrediction}
+          <TeamFlag team={match.away} showName className="justify-end text-right" />
+        </div>
+        <PredictionStepper
+          home={match.home}
+          away={match.away}
+          initialHome={match.predictedHome ?? 0}
+          initialAway={match.predictedAway ?? 0}
+          onChange={setPrediction}
+          disabled={isLocked}
+        />
+        {match.scoreReason ? (
+          <div className="rounded-lg border bg-white/70 p-3 text-sm dark:border-white/10 dark:bg-slate-950/60">
+            <span className="font-semibold">{match.scoreReason}</span>
+            {typeof match.points === "number" ? (
+              <span className="ml-2 text-muted-foreground">
+                {match.points > 0 ? "+" : ""}
+                {match.points} pts
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <span className="text-sm font-medium text-muted-foreground">
+            {match.lockLabel}
+          </span>
+          <SavePredictionButton
             disabled={isLocked}
+            groupId={groupId}
+            matchId={match.id}
+            predictedHomeScore={prediction.home}
+            predictedAwayScore={prediction.away}
+            scoreStatus={match.scoreStatus}
           />
-          {match.scoreReason ? (
-            <div className="rounded-lg border bg-white/70 p-3 text-sm dark:border-white/10 dark:bg-slate-950/60">
-              <span className="font-semibold">{match.scoreReason}</span>
-              {typeof match.points === "number" ? (
-                <span className="ml-2 text-muted-foreground">
-                  {match.points > 0 ? "+" : ""}
-                  {match.points} pts
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <span className="text-sm font-medium text-muted-foreground">
-              {match.lockLabel}
-            </span>
-            <SavePredictionButton
-              disabled={isLocked}
-              groupId={groupId}
-              matchId={match.id}
-              predictedHomeScore={prediction.home}
-              predictedAwayScore={prediction.away}
-              scoreStatus={match.scoreStatus}
-            />
-          </div>
-        </CardContent>
-      </Card>
-    </MagicBentoCard>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
