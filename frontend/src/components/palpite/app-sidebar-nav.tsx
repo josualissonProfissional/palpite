@@ -1,22 +1,33 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
-  CalendarDaysIcon,
   ChartNoAxesColumnIncreasingIcon,
   ChevronRightIcon,
   ClipboardListIcon,
+  LogOutIcon,
+  PlusIcon,
   SettingsIcon,
   TrophyIcon,
   UserIcon,
   UsersIcon,
 } from "lucide-react";
+import { CreateGroupForm } from "@/components/palpite/group-actions";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -28,6 +39,9 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
+import { createClient } from "@/lib/supabase/client";
+
+type GroupLink = { id: string; name: string; slug: string };
 
 export function AppSidebarNav({
   groupSlug,
@@ -37,12 +51,44 @@ export function AppSidebarNav({
   groupName?: string;
 }) {
   const pathname = usePathname() ?? "";
-  const groupBase = groupSlug ? `/app/grupos/${groupSlug}` : "/app/grupos";
+  const router = useRouter();
+  const [groups, setGroups] = useState<GroupLink[]>([]);
 
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .schema("palpite")
+        .from("group_members")
+        .select("group:group_id(id,name,slug)")
+        .eq("user_id", user.id)
+        .eq("status", "active");
+      if (!active || !data) return;
+      const list = (data as unknown as { group: GroupLink | null }[])
+        .map((row) => row.group)
+        .filter((g): g is GroupLink => Boolean(g));
+      setGroups(list);
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function handleLogout() {
+    await createClient().auth.signOut();
+    router.push("/entrar");
+    router.refresh();
+  }
+
+  const groupBase = groupSlug ? `/app/grupos/${groupSlug}` : "/app/grupos";
   const groupItems = groupSlug
     ? [
-        { label: "Resumo", href: groupBase, icon: TrophyIcon },
-        { label: "Jogos e palpites", href: `${groupBase}/jogos`, icon: CalendarDaysIcon },
+        { label: "Resumo e jogos", href: groupBase, icon: TrophyIcon },
         { label: "Ranking", href: `${groupBase}/ranking`, icon: ChartNoAxesColumnIncreasingIcon },
         { label: "Membros", href: `${groupBase}/membros`, icon: UsersIcon },
         { label: "Regras", href: `${groupBase}/regras`, icon: SettingsIcon },
@@ -88,6 +134,59 @@ export function AppSidebarNav({
       ) : null}
 
       <SidebarGroup className="py-1">
+        <SidebarGroupLabel>Meus grupos</SidebarGroupLabel>
+        <SidebarGroupContent>
+          <SidebarMenu>
+            {groups.map((group) => (
+              <SidebarMenuItem key={group.id}>
+                <SidebarMenuButton
+                  asChild
+                  tooltip={group.name}
+                  isActive={pathname.startsWith(`/app/grupos/${group.slug}`)}
+                >
+                  <Link href={`/app/grupos/${group.slug}`}>
+                    <TrophyIcon className="size-4" />
+                    <span className="truncate">{group.name}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                asChild
+                tooltip="Ver todos os grupos"
+                isActive={isActive("/app/grupos") || isActive("/app")}
+              >
+                <Link href="/app/grupos">
+                  <UsersIcon className="size-4" />
+                  <span>{groups.length > 0 ? "Todos os grupos" : "Entrar em grupo"}</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <Dialog>
+                <DialogTrigger asChild>
+                  <SidebarMenuButton tooltip="Criar grupo">
+                    <PlusIcon className="size-4" />
+                    <span>Criar grupo</span>
+                  </SidebarMenuButton>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Criar bolao</DialogTitle>
+                    <DialogDescription>
+                      Informe o nome e uma descricao. O link do grupo sera criado automaticamente.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <CreateGroupForm />
+                </DialogContent>
+              </Dialog>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+
+      <SidebarGroup className="py-1">
         <SidebarGroupLabel>Copa do Mundo</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
@@ -108,19 +207,17 @@ export function AppSidebarNav({
         <SidebarGroupContent>
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton asChild tooltip="Meus grupos" isActive={isActive("/app/grupos") || isActive("/app")}>
-                <Link href="/app/grupos">
-                  <UsersIcon className="size-4" />
-                  <span>Meus grupos</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
               <SidebarMenuButton asChild tooltip="Perfil" isActive={pathname.startsWith("/app/perfil")}>
                 <Link href="/app/perfil">
                   <UserIcon className="size-4" />
                   <span>Perfil</span>
                 </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton tooltip="Sair" onClick={handleLogout}>
+                <LogOutIcon className="size-4" />
+                <span>Sair</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>

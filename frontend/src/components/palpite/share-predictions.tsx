@@ -13,12 +13,16 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { getBaseUrl } from "@/lib/base-url";
 
 export type SharePrediction = {
   home: string;
   away: string;
   predictedHome: number;
   predictedAway: number;
+  resultHome?: number;
+  resultAway?: number;
+  matchStatus?: "live" | "scheduled" | "finished" | "locked";
   status?: "pending" | "correct" | "partial" | "wrong" | "inverse_penalty";
   points?: number;
 };
@@ -37,10 +41,16 @@ const statusEmoji: Record<NonNullable<SharePrediction["status"]>, string> = {
   pending: "⚪",
 };
 
+function resultTag(p: SharePrediction) {
+  if (typeof p.resultHome !== "number" || typeof p.resultAway !== "number") return "";
+  const live = p.matchStatus === "live" ? " (ao vivo)" : p.matchStatus === "finished" ? " (final)" : "";
+  return ` | Resultado: ${p.resultHome} x ${p.resultAway}${live}`;
+}
+
 function buildText({ groupName, predictions, totalPoints }: SharePredictionsProps) {
   const lines = predictions.map((p) => {
     const dot = p.status ? `${statusEmoji[p.status]} ` : "⚽ ";
-    return `${dot}${p.home} ${p.predictedHome} x ${p.predictedAway} ${p.away}`;
+    return `${dot}${p.home} ${p.predictedHome} x ${p.predictedAway} ${p.away}${resultTag(p)}`;
   });
   return [
     `🏆 Meus palpites — ${groupName}`,
@@ -48,98 +58,116 @@ function buildText({ groupName, predictions, totalPoints }: SharePredictionsProp
     ...lines,
     "",
     `Total: ${totalPoints} pts`,
-    "Feito no Palpite · Copa do Mundo 2026",
+    `Faça o seu no Palpitô: ${getBaseUrl()}`,
   ].join("\n");
 }
 
-function drawStoryImage({ groupName, predictions, totalPoints }: SharePredictionsProps): Promise<Blob | null> {
+function loadImage(src: string): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+async function drawStoryImage({ groupName, predictions, totalPoints }: SharePredictionsProps): Promise<Blob | null> {
   const W = 1080;
   const H = 1920;
   const canvas = document.createElement("canvas");
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext("2d");
-  if (!ctx) return Promise.resolve(null);
+  if (!ctx) return null;
 
-  // fundo
   const bg = ctx.createLinearGradient(0, 0, 0, H);
   bg.addColorStop(0, "#0b1f4d");
   bg.addColorStop(1, "#05132e");
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
-  // faixa superior
   const accent = ctx.createLinearGradient(0, 0, W, 0);
   accent.addColorStop(0, "#2563eb");
   accent.addColorStop(1, "#f97316");
   ctx.fillStyle = accent;
   ctx.fillRect(0, 0, W, 16);
 
+  // logo Palpitô no topo
+  const logo = await loadImage("/logo/logo-apenas-desenho-sem-fundo.svg");
+  if (logo) {
+    const s = 150;
+    ctx.drawImage(logo, (W - s) / 2, 70, s, s);
+  }
+
   ctx.textAlign = "center";
   ctx.fillStyle = "#ffffff";
-  ctx.font = "800 76px Arial, sans-serif";
-  ctx.fillText("MEUS PALPITES", W / 2, 220);
+  ctx.font = "800 70px Arial, sans-serif";
+  ctx.fillText("MEUS PALPITES", W / 2, 300);
 
   ctx.fillStyle = "#9fc0ff";
-  ctx.font = "600 44px Arial, sans-serif";
-  ctx.fillText(groupName, W / 2, 290);
+  ctx.font = "600 42px Arial, sans-serif";
+  ctx.fillText(groupName, W / 2, 360);
 
-  // lista
-  const maxRows = 12;
+  const maxRows = 11;
   const shown = predictions.slice(0, maxRows);
-  const startY = 420;
-  const rowH = 104;
-  ctx.textAlign = "left";
+  const startY = 470;
+  const rowH = 108;
 
   shown.forEach((p, i) => {
     const y = startY + i * rowH;
-    // cartao da linha
-    ctx.fillStyle = "rgba(255,255,255,0.06)";
     const x = 90;
     const w = W - 180;
-    const r = 24;
+    ctx.fillStyle = "rgba(255,255,255,0.06)";
     ctx.beginPath();
-    ctx.roundRect(x, y, w, 80, r);
+    ctx.roundRect(x, y, w, 92, 24);
     ctx.fill();
 
     ctx.fillStyle = "#ffffff";
-    ctx.font = "700 40px Arial, sans-serif";
+    ctx.font = "700 38px Arial, sans-serif";
     ctx.textAlign = "left";
-    ctx.fillText(p.home, x + 36, y + 52);
+    ctx.fillText(p.home, x + 32, y + 44);
 
     ctx.textAlign = "center";
     ctx.fillStyle = "#fbbf24";
-    ctx.font = "800 44px Arial, sans-serif";
-    ctx.fillText(`${p.predictedHome} x ${p.predictedAway}`, W / 2, y + 52);
+    ctx.font = "800 42px Arial, sans-serif";
+    ctx.fillText(`${p.predictedHome} x ${p.predictedAway}`, W / 2, y + 44);
 
     ctx.textAlign = "right";
     ctx.fillStyle = "#ffffff";
-    ctx.font = "700 40px Arial, sans-serif";
-    ctx.fillText(p.away, x + w - 36, y + 52);
+    ctx.font = "700 38px Arial, sans-serif";
+    ctx.fillText(p.away, x + w - 32, y + 44);
+
+    // resultado ao vivo (quando houver)
+    if (typeof p.resultHome === "number" && typeof p.resultAway === "number") {
+      const live = p.matchStatus === "live" ? "AO VIVO" : p.matchStatus === "finished" ? "FINAL" : "";
+      ctx.textAlign = "center";
+      ctx.fillStyle = p.matchStatus === "live" ? "#fca5a5" : "#9fc0ff";
+      ctx.font = "600 26px Arial, sans-serif";
+      ctx.fillText(`Resultado ${p.resultHome} x ${p.resultAway}${live ? "  ·  " + live : ""}`, W / 2, y + 78);
+    }
   });
 
   if (predictions.length > maxRows) {
     ctx.textAlign = "center";
     ctx.fillStyle = "#9fc0ff";
-    ctx.font = "600 36px Arial, sans-serif";
-    ctx.fillText(`+${predictions.length - maxRows} palpites`, W / 2, startY + maxRows * rowH + 30);
+    ctx.font = "600 34px Arial, sans-serif";
+    ctx.fillText(`+${predictions.length - maxRows} palpites`, W / 2, startY + maxRows * rowH + 20);
   }
 
-  // total
   ctx.textAlign = "center";
   ctx.fillStyle = "#ffffff";
-  ctx.font = "800 60px Arial, sans-serif";
-  ctx.fillText(`Total: ${totalPoints} pts`, W / 2, H - 220);
+  ctx.font = "800 58px Arial, sans-serif";
+  ctx.fillText(`Total: ${totalPoints} pts`, W / 2, H - 200);
 
   ctx.fillStyle = "#9fc0ff";
-  ctx.font = "600 38px Arial, sans-serif";
-  ctx.fillText("Palpite · Copa do Mundo 2026", W / 2, H - 150);
+  ctx.font = "600 36px Arial, sans-serif";
+  ctx.fillText("Palpitô · Copa do Mundo 2026", W / 2, H - 130);
 
   return new Promise((resolve) => canvas.toBlob((b) => resolve(b), "image/png"));
 }
 
 export function SharePredictions(props: SharePredictionsProps) {
-  const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [generating, setGenerating] = useState(false);
   const text = buildText(props);
@@ -167,16 +195,9 @@ export function SharePredictions(props: SharePredictionsProps) {
         return;
       }
       const file = new File([blob], "meus-palpites.png", { type: "image/png" });
-
-      const nav = navigator as Navigator & {
-        canShare?: (data?: ShareData) => boolean;
-      };
+      const nav = navigator as Navigator & { canShare?: (data?: ShareData) => boolean };
       if (nav.canShare?.({ files: [file] }) && nav.share) {
-        await nav.share({
-          files: [file],
-          title: "Meus palpites",
-          text: `Meus palpites — ${props.groupName}`,
-        });
+        await nav.share({ files: [file], title: "Meus palpites", text: `Meus palpites — ${props.groupName}` });
       } else {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -187,7 +208,6 @@ export function SharePredictions(props: SharePredictionsProps) {
         toast.success("Imagem salva! Publique no seu story do Instagram.");
       }
     } catch (error) {
-      // usuario pode cancelar o compartilhamento — nao tratamos como erro
       if (error instanceof Error && error.name !== "AbortError") {
         toast.error("Nao foi possivel compartilhar a imagem.");
       }
@@ -197,7 +217,7 @@ export function SharePredictions(props: SharePredictionsProps) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog>
       <DialogTrigger asChild>
         <Button variant="secondary" size="sm" disabled={props.predictions.length === 0}>
           <Share2Icon className="size-4" />

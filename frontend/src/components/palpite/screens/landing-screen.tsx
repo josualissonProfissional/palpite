@@ -40,8 +40,16 @@ export function LandingScreen() {
           className="pointer-events-none absolute left-1/2 top-1/2 z-0 h-[70vh] max-h-[880px] min-h-[320px] -translate-x-1/2 -translate-y-[45%] select-none object-contain opacity-38 mix-blend-screen drop-shadow-[0_0_90px_rgba(250,204,21,0.46)] sm:h-[88vh] sm:min-h-[540px] sm:opacity-42"
         />
         <div className="relative z-10 flex flex-col items-center">
+          <Image
+            src="/logo/logo-detalhada-sem-fundo.svg"
+            alt="Palpitô"
+            width={260}
+            height={260}
+            priority
+            className="mb-3 h-24 w-auto object-contain drop-shadow-[0_0_40px_rgba(56,189,248,0.45)] sm:h-32"
+          />
           <TrueFocus
-            sentence="Palpite entre amigos"
+            sentence="Palpitô entre amigos"
             blurAmount={2.4}
             borderColor="#38bdf8"
             glowColor="rgba(56, 189, 248, 0.72)"

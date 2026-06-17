@@ -19,6 +19,8 @@ import { InlineLoading } from "@/components/palpite/backend-loading";
 
 type InviteFriendButtonProps = {
   groupId?: string;
+  inviteCode?: string | null;
+  canInvite?: boolean;
 };
 
 async function getFunctionErrorMessage(error: unknown) {
@@ -36,13 +38,30 @@ async function getFunctionErrorMessage(error: unknown) {
   return "Nao foi possivel gerar o convite.";
 }
 
-export function InviteFriendButton({ groupId }: InviteFriendButtonProps) {
+export function InviteFriendButton({
+  groupId,
+  inviteCode,
+  canInvite = true,
+}: InviteFriendButtonProps) {
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
-  const [link, setLink] = useState("");
+  const [code, setCode] = useState(inviteCode ?? "");
+  const [link, setLink] = useState(inviteCode ? `${getBaseUrl()}/convite/${inviteCode}` : "");
   const [copied, setCopied] = useState(false);
 
-  async function handleInvite() {
+  function handleOpen() {
+    if (!canInvite) {
+      toast.error("Este grupo nao permite convites por membros.");
+      return;
+    }
+
+    setCode(inviteCode ?? code);
+    setLink(inviteCode ? `${getBaseUrl()}/convite/${inviteCode}` : link);
+    setCopied(false);
+    setOpen(true);
+  }
+
+  async function handleGenerateInvite() {
     if (!groupId) {
       toast.error("Grupo nao identificado.");
       return;
@@ -60,16 +79,16 @@ export function InviteFriendButton({ groupId }: InviteFriendButtonProps) {
         return;
       }
 
-      const code = (data as { invite?: { code?: string } } | null)?.invite?.code;
-      if (!code) {
+      const nextCode = (data as { invite?: { code?: string } } | null)?.invite?.code;
+      if (!nextCode) {
         toast.error("Convite gerado sem codigo. Tente novamente.");
         return;
       }
 
-      const inviteLink = `${getBaseUrl()}/convite/${code}`;
+      const inviteLink = `${getBaseUrl()}/convite/${nextCode}`;
+      setCode(nextCode);
       setLink(inviteLink);
       setCopied(false);
-      setOpen(true);
       await copyToClipboard(inviteLink, false);
     } catch (error) {
       toast.error(await getFunctionErrorMessage(error));
@@ -90,7 +109,7 @@ export function InviteFriendButton({ groupId }: InviteFriendButtonProps) {
 
   return (
     <>
-      <Button onClick={handleInvite} disabled={loading}>
+      <Button onClick={handleOpen} disabled={loading || !canInvite}>
         <InlineLoading active={loading} />
         {!loading && <UserPlusIcon className="size-4" />}
         {loading ? "Gerando..." : "Convidar amigo"}
@@ -101,17 +120,33 @@ export function InviteFriendButton({ groupId }: InviteFriendButtonProps) {
           <DialogHeader>
             <DialogTitle>Convide um amigo</DialogTitle>
             <DialogDescription>
-              Envie este link. Ao abrir, seu amigo cria a conta e ja entra no
-              grupo para fazer os palpites.
+              Envie o codigo ou o link. Quem ja tem conta entra direto no grupo;
+              quem nao tem conta cria uma antes de participar.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <Label htmlFor="invite-link">Link do convite</Label>
+            <Label htmlFor="invite-code">Codigo do grupo</Label>
             <div className="flex gap-2">
-              <Input id="invite-link" readOnly value={link} />
+              <Input id="invite-code" readOnly value={code || "Codigo indisponivel"} />
               <Button
                 type="button"
                 variant="secondary"
+                disabled={!code}
+                onClick={() => copyToClipboard(code)}
+              >
+                {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
+                Copiar codigo
+              </Button>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="invite-link">Link do convite</Label>
+            <div className="flex gap-2">
+              <Input id="invite-link" readOnly value={link || "Link indisponivel"} />
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={!link}
                 onClick={() => copyToClipboard(link)}
               >
                 {copied ? (
@@ -123,6 +158,11 @@ export function InviteFriendButton({ groupId }: InviteFriendButtonProps) {
               </Button>
             </div>
           </div>
+          <Button type="button" onClick={handleGenerateInvite} disabled={loading || !groupId}>
+            <InlineLoading active={loading} />
+            {!loading && <UserPlusIcon className="size-4" />}
+            {loading ? "Gerando..." : code ? "Gerar novo link" : "Gerar link"}
+          </Button>
         </DialogContent>
       </Dialog>
     </>

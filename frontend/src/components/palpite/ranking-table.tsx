@@ -26,15 +26,15 @@ export function RankingTable({ ranking }: { ranking: RankingRow[] }) {
 
   return (
     <div className="overflow-hidden rounded-lg border bg-card/90">
-      <Table className="min-w-[640px]">
+      <Table>
         <TableCaption>Ranking do grupo.</TableCaption>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-12">#</TableHead>
+            <TableHead className="w-8">#</TableHead>
             <TableHead>Participante</TableHead>
-            <TableHead className="text-center">Exatos</TableHead>
-            <TableHead className="text-center">Parciais</TableHead>
-            <TableHead className="text-center">Pen.</TableHead>
+            <TableHead className="hidden text-center sm:table-cell">Exatos</TableHead>
+            <TableHead className="hidden text-center sm:table-cell">Parciais</TableHead>
+            <TableHead className="hidden text-center sm:table-cell">Pen.</TableHead>
             <TableHead className="text-right">Pts</TableHead>
           </TableRow>
         </TableHeader>
@@ -43,33 +43,35 @@ export function RankingTable({ ranking }: { ranking: RankingRow[] }) {
             <TableRow key={row.name}>
               <TableCell className="font-semibold">{row.position}</TableCell>
               <TableCell>
-                <div className="flex items-center gap-3">
-                  <Avatar className="size-9 border">
-                    <AvatarFallback>{row.avatarFallback}</AvatarFallback>
+                <div className="flex items-center gap-2">
+                  <Avatar className="size-7 border sm:size-9">
+                    <AvatarFallback className="text-[11px]">{row.avatarFallback}</AvatarFallback>
                   </Avatar>
-                  <div>
-                    <div className="font-semibold">{row.name}</div>
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1 font-semibold">
                       {row.trend === "up" ? (
-                        <ArrowUpIcon className="size-3 text-emerald-600" />
+                        <ArrowUpIcon className="size-3 shrink-0 text-emerald-600" />
                       ) : row.trend === "down" ? (
-                        <ArrowDownIcon className="size-3 text-red-600" />
+                        <ArrowDownIcon className="size-3 shrink-0 text-red-600" />
                       ) : (
-                        <MinusIcon className="size-3" />
+                        <MinusIcon className="size-3 shrink-0 text-muted-foreground" />
                       )}
-                      {row.predicted} palpites
+                      <span className="truncate">{row.name}</span>
+                    </div>
+                    <div className="text-[11px] text-muted-foreground sm:hidden">
+                      {row.exactScores} exatos · {row.partialHits} parc. · {row.penalties} pen.
                     </div>
                   </div>
                 </div>
               </TableCell>
-              <TableCell className="text-center">{row.exactScores}</TableCell>
-              <TableCell className="text-center">{row.partialHits}</TableCell>
-              <TableCell className="text-center">
+              <TableCell className="hidden text-center sm:table-cell">{row.exactScores}</TableCell>
+              <TableCell className="hidden text-center sm:table-cell">{row.partialHits}</TableCell>
+              <TableCell className="hidden text-center sm:table-cell">
                 <Badge variant={row.penalties > 0 ? "destructive" : "secondary"}>
                   {row.penalties}
                 </Badge>
               </TableCell>
-              <TableCell className="text-right text-lg font-bold">
+              <TableCell className="text-right text-base font-bold sm:text-lg">
                 {row.points}
               </TableCell>
             </TableRow>

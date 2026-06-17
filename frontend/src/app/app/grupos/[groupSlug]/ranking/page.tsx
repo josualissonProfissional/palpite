@@ -3,6 +3,7 @@ import { AppShell } from "@/components/palpite/app-shell";
 import { EmptyState } from "@/components/palpite/empty-state";
 import { RankingTable } from "@/components/palpite/ranking-table";
 import { ScreenHeader } from "@/components/palpite/screen-header";
+import { ShareGroupSummary } from "@/components/palpite/share-group-summary";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,15 +23,21 @@ export default async function RankingPage({
     getGroupData(groupSlug),
   ]);
   const ranking = await getRanking(groupData.group?.id);
+  const groupName = groupData.group?.name ?? "Grupo";
 
   return (
-    <AppShell groupName={groupData.group?.name ?? "Grupo"} groupSlug={groupSlug} teams={worldCup.teams}>
+    <AppShell groupName={groupName} groupSlug={groupSlug} teams={worldCup.teams}>
       <ScreenHeader
         icon={ChartNoAxesColumnIncreasingIcon}
         eyebrow="Ranking"
         title="Ranking do grupo"
         description="A classificacao atualiza automaticamente conforme os resultados dos jogos saem."
-        action={<Button variant="secondary"><RefreshCcwIcon className="size-4" /> Atualizar</Button>}
+        action={
+          <div className="flex flex-wrap gap-2">
+            <ShareGroupSummary groupId={groupData.group?.id} groupName={groupName} ranking={ranking} />
+            <Button variant="secondary"><RefreshCcwIcon className="size-4" /> Atualizar</Button>
+          </div>
+        }
       />
       <Card className="border-white/70 bg-white/86 backdrop-blur dark:border-white/10 dark:bg-slate-950/70">
         <CardContent className="grid gap-3 p-4 md:grid-cols-5">

@@ -10,11 +10,10 @@ import { AppShell } from "@/components/palpite/app-shell";
 import { EmptyState } from "@/components/palpite/empty-state";
 import { MatchList } from "@/components/palpite/match-card";
 import { RankingTable } from "@/components/palpite/ranking-table";
+import { ShareGroupSummary } from "@/components/palpite/share-group-summary";
 import { LiveStandings } from "@/components/palpite/live-standings";
 import { TeamFlag } from "@/components/palpite/team-flag";
-import { ThemeToggle } from "@/components/palpite/theme-toggle";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { NeonGradientCard } from "@/components/ui/neon-gradient-card";
 import { Progress } from "@/components/ui/progress";
@@ -49,43 +48,38 @@ export function DashboardScreen({
     <AppShell groupName={groupName} groupSlug={group?.slug} teams={teams}>
       <NeonGradientCard
         borderSize={2}
-        borderRadius={18}
+        borderRadius={14}
         neonColors={{ firstColor: "#2563eb", secondColor: "#00fff1" }}
         className="min-h-0"
       >
-      <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <Badge className="mb-2 gap-1 bg-orange-500 text-white hover:bg-orange-500">
+      <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <Badge className="mb-1.5 gap-1 bg-orange-500 text-[11px] text-white hover:bg-orange-500">
             <RadioIcon className="size-3" />
             {liveMatches > 0 ? "Rodada ao vivo" : "Tudo atualizado"}
           </Badge>
-          <h1 className="font-heading text-3xl font-bold tracking-normal text-slate-950 dark:text-white sm:text-4xl md:text-5xl">
+          <h1 className="truncate font-heading text-2xl font-bold tracking-normal text-slate-950 dark:text-white sm:text-3xl md:text-4xl">
             {groupName}
           </h1>
-          <p className="max-w-2xl text-base text-muted-foreground">
+          <p className="max-w-2xl text-xs text-muted-foreground sm:text-sm">
             {configured
-              ? "Acompanhe seus palpites, a classificacao e o ranking em tempo real."
-              : "Estamos preparando tudo. Em instantes seus jogos e palpites aparecem aqui."}
+              ? "Palpites, classificacao e ranking em tempo real."
+              : "Estamos preparando tudo. Em instantes seus jogos aparecem aqui."}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="hidden flex-wrap items-center gap-2 sm:flex">
           {teams.slice(0, 3).map((team) => (
-            <TeamFlag key={team.id ?? team.name} team={team} />
+            <TeamFlag key={team.id ?? team.name} team={team} size="sm" />
           ))}
-          <ThemeToggle />
-          <Button className="w-full sm:w-auto">
-            <TrophyIcon className="size-4" />
-            Novo palpite
-          </Button>
         </div>
       </header>
       </NeonGradientCard>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
         <MetricCard icon={CalendarDaysIcon} label="Jogos" value={String(matches.length)} detail={`${scheduledMatches} abertos`} />
-        <MetricCard icon={ShieldIcon} label="Ao vivo" value={String(liveMatches)} detail="jogos acontecendo agora" />
-        <MetricCard icon={ChartNoAxesColumnIncreasingIcon} label="Posicao" value={userRanking} detail="sua colocacao no ranking" />
-        <MetricCard icon={UsersIcon} label="Ranking" value={String(ranking.length)} detail="participantes listados" />
+        <MetricCard icon={ShieldIcon} label="Ao vivo" value={String(liveMatches)} detail="acontecendo agora" />
+        <MetricCard icon={ChartNoAxesColumnIncreasingIcon} label="Posicao" value={userRanking} detail="sua colocacao" />
+        <MetricCard icon={UsersIcon} label="Ranking" value={String(ranking.length)} detail="participantes" />
       </section>
 
       <Tabs defaultValue="jogos" className="space-y-4">
@@ -97,20 +91,28 @@ export function DashboardScreen({
         <TabsContent value="jogos" className="space-y-4">
           <MatchList matches={matches} groupId={group?.id} groupName={groupName} />
         </TabsContent>
-        <TabsContent value="ranking" className="grid gap-4 xl:grid-cols-[1fr_420px]">
-          <RankingTable ranking={ranking} />
-          <Card className="border-white/70 bg-white/86 backdrop-blur dark:border-white/10 dark:bg-slate-950/70">
-            <CardHeader>
-              <CardTitle className="font-heading text-2xl">Estado do ranking</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <EmptyState
-                icon={ChartNoAxesColumnIncreasingIcon}
-                title="Sem grafico ainda"
-                description="O grafico de evolucao aparece aqui assim que houver historico suficiente de pontuacao."
-              />
-            </CardContent>
-          </Card>
+        <TabsContent value="ranking" className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium text-muted-foreground">
+              Ranking do grupo com pontos atualizados.
+            </p>
+            <ShareGroupSummary groupId={group?.id} groupName={groupName} ranking={ranking} />
+          </div>
+          <section className="grid gap-4 xl:grid-cols-[1fr_420px]">
+            <RankingTable ranking={ranking} />
+            <Card className="border-white/70 bg-white/86 backdrop-blur dark:border-white/10 dark:bg-slate-950/70">
+              <CardHeader>
+                <CardTitle className="font-heading text-2xl">Estado do ranking</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <EmptyState
+                  icon={ChartNoAxesColumnIncreasingIcon}
+                  title="Sem grafico ainda"
+                  description="O grafico de evolucao aparece aqui assim que houver historico suficiente de pontuacao."
+                />
+              </CardContent>
+            </Card>
+          </section>
         </TabsContent>
         <TabsContent value="copa" className="grid gap-4 xl:grid-cols-[1fr_380px]">
           <LiveStandings initialStandings={standings} />
@@ -156,14 +158,14 @@ function MetricCard({
 }) {
   return (
     <Card className="border-white/70 bg-white/86 shadow-sm backdrop-blur dark:border-white/10 dark:bg-slate-950/70">
-      <CardContent className="flex items-center gap-4 p-4">
-        <div className="grid size-11 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-          <Icon className="size-5" />
+      <CardContent className="flex items-center gap-2.5 p-2.5 sm:gap-3 sm:p-4">
+        <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary sm:size-10">
+          <Icon className="size-4 sm:size-5" />
         </div>
         <div className="min-w-0">
-          <div className="text-sm font-medium text-muted-foreground">{label}</div>
-          <div className="font-heading text-3xl font-bold leading-none text-slate-950 dark:text-white">{value}</div>
-          <div className="mt-1 text-xs font-medium text-muted-foreground">{detail}</div>
+          <div className="text-[11px] font-medium text-muted-foreground sm:text-sm">{label}</div>
+          <div className="font-heading text-xl font-bold leading-none text-slate-950 dark:text-white sm:text-2xl">{value}</div>
+          <div className="mt-0.5 truncate text-[10px] font-medium text-muted-foreground sm:text-xs">{detail}</div>
         </div>
       </CardContent>
     </Card>

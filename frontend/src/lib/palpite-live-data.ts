@@ -65,7 +65,17 @@ type GroupMemberRow = {
     slug: string;
     description: string | null;
     invite_code: string | null;
+    allow_member_invites: boolean;
   } | null;
+};
+
+type GroupRow = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  invite_code: string | null;
+  allow_member_invites: boolean;
 };
 
 type MemberRow = {
@@ -321,7 +331,7 @@ export async function getGroupsData() {
   const { data, error } = await supabase
     .schema("palpite")
     .from("group_members")
-    .select("role, status, joined_at, group:group_id(id,name,slug,description,invite_code)")
+    .select("role, status, joined_at, group:group_id(id,name,slug,description,invite_code,allow_member_invites)")
     .eq("user_id", user.id)
     .eq("status", "active");
 
@@ -338,6 +348,7 @@ export async function getGroupsData() {
         slug: row.group!.slug,
         description: row.group!.description,
         inviteCode: row.group!.invite_code,
+        allowMemberInvites: row.group!.allow_member_invites,
         role: row.role,
         status: row.status,
       })),
@@ -357,7 +368,7 @@ export async function getGroupData(slug: string) {
   const db = supabase.schema("palpite");
   const { data: group, error } = await db
     .from("groups")
-    .select("id,name,slug,description,invite_code")
+    .select("id,name,slug,description,invite_code,allow_member_invites")
     .eq("slug", slug)
     .maybeSingle();
 
@@ -370,17 +381,28 @@ export async function getGroupData(slug: string) {
     };
   }
 
+  const { data: membership } = await db
+    .from("group_members")
+    .select("role, status")
+    .eq("group_id", group.id)
+    .eq("user_id", user.id)
+    .eq("status", "active")
+    .maybeSingle();
+
+  const typedGroup = group as GroupRow;
+
   return {
     configured: true,
     authenticated: true,
     group: {
-      id: group.id,
-      name: group.name,
-      slug: group.slug,
-      description: group.description,
-      inviteCode: group.invite_code,
-      role: "member" as const,
-      status: "active" as const,
+      id: typedGroup.id,
+      name: typedGroup.name,
+      slug: typedGroup.slug,
+      description: typedGroup.description,
+      inviteCode: typedGroup.invite_code,
+      allowMemberInvites: typedGroup.allow_member_invites,
+      role: (membership?.role ?? "member") as GroupSummary["role"],
+      status: (membership?.status ?? "active") as GroupSummary["status"],
     },
   };
 }
@@ -405,7 +427,7 @@ export async function getMembers(groupId?: string) {
 
   return (memberRows as MemberRow[]).map<Member>((member) => {
     const profile = profileById.get(member.user_id);
-    const name = profile?.nickname ?? profile?.full_name ?? "Participante";
+    const name = profile?.full_name ?? profile?.nickname ?? "Participante";
     return {
       userId: member.user_id,
       name,

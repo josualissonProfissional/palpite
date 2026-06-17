@@ -1,6 +1,7 @@
 import { SettingsIcon } from "lucide-react";
 import { AppShell } from "@/components/palpite/app-shell";
 import { EmptyState } from "@/components/palpite/empty-state";
+import { GroupInviteSettings } from "@/components/palpite/group-invite-settings";
 import { ScreenHeader } from "@/components/palpite/screen-header";
 import { ScoringRulesForm } from "@/components/palpite/scoring-rules-form";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +35,12 @@ export default async function RulesPage({ params }: { params: Promise<{ groupSlu
             {rules ? [["Placar exato", `${rules.exactScorePoints} pts`], ["Vencedor", `${rules.correctWinnerPoints} pts`], ["Empate", `${rules.correctDrawPoints} pts`], ["Bloqueio", `${rules.lockPredictionMinutesBefore} min`], ["Politica inversa", rules.inverseScorePolicy]].map(([label, value]) => (
               <div key={label} className="rounded-lg border bg-white/70 p-3 dark:bg-slate-950/60"><div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div className="font-semibold">{label}</div><Badge className="w-fit">{value}</Badge></div></div>
             )) : <p className="text-sm text-muted-foreground">Nenhuma regra definida ainda.</p>}
+          </CardContent>
+        </Card>
+        <Card className="border-white/70 bg-white/86 backdrop-blur dark:border-white/10 dark:bg-slate-950/70 lg:col-start-2">
+          <CardHeader><CardTitle className="font-heading text-2xl">Convites do grupo</CardTitle></CardHeader>
+          <CardContent>
+            <GroupInviteSettings group={groupData.group} />
           </CardContent>
         </Card>
       </section>

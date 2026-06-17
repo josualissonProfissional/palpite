@@ -18,8 +18,13 @@ const barlowCondensed = Barlow_Condensed({
 });
 
 export const metadata: Metadata = {
-  title: "Palpite | Copa do Mundo",
-  description: "App de palpites da Copa do Mundo com grupos, jogos e ranking.",
+  title: "Palpitô | Copa do Mundo",
+  description: "Palpitô: bolão da Copa do Mundo com grupos, jogos e ranking ao vivo.",
+  icons: {
+    icon: "/logo/logo-apenas-desenho-sem-fundo.svg",
+    shortcut: "/logo/logo-apenas-desenho-sem-fundo.svg",
+    apple: "/logo/logo-apenas-desenho-sem-fundo.png",
+  },
 };
 
 export default function RootLayout({

@@ -4,6 +4,7 @@ import {
   ensureActiveMember,
   handleError,
   handleOptions,
+  HttpError,
   json,
   optionalString,
   randomCode,
@@ -23,9 +24,28 @@ Deno.serve(async (req) => {
     const body = await readJson(req);
 
     const groupId = requireString(body.group_id, "group_id");
-    await ensureActiveMember(admin, groupId, user.id, ["owner", "admin"]);
+    const member = await ensureActiveMember(admin, groupId, user.id);
+
+    const { data: group, error: groupError } = await admin
+      .from("groups")
+      .select("allow_member_invites")
+      .eq("id", groupId)
+      .maybeSingle();
+    if (groupError) throw groupError;
+    if (!group) throw new HttpError(404, "Group not found");
+
+    const canInvite =
+      ["owner", "admin"].includes(member.role) ||
+      (member.role === "member" && group.allow_member_invites === true);
+
+    if (!canInvite) {
+      throw new HttpError(403, "Only group admins can invite members");
+    }
 
     const role = optionalString(body.role) ?? "member";
+    if (member.role === "member" && role !== "member") {
+      throw new HttpError(403, "Members can only invite regular members");
+    }
     if (!["admin", "member"].includes(role)) {
       return json(400, { error: "role must be admin or member" });
     }
@@ -55,4 +75,3 @@ Deno.serve(async (req) => {
     return handleError(error);
   }
 });
-

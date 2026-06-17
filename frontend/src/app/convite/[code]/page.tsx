@@ -27,8 +27,8 @@ export default async function InvitePage({
               <TicketCheckIcon className="size-4" />
               <AlertTitle>Convite valido</AlertTitle>
               <AlertDescription>
-                Crie sua conta abaixo e entre direto no grupo para fazer seus
-                palpites.
+                Entre com sua conta atual ou crie uma nova conta para participar
+                do grupo e fazer seus palpites.
               </AlertDescription>
             </Alert>
             <InviteAccept code={code} />

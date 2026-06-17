@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { TrophyIcon } from "lucide-react";
+import Image from "next/image";
 import { AnimatedWorldCupBackground } from "@/components/palpite/animated-world-cup-background";
 import { AppSidebarNav } from "@/components/palpite/app-sidebar-nav";
 import { ThemeToggle } from "@/components/palpite/theme-toggle";
@@ -35,11 +35,15 @@ export function AppShell({
               href="/app"
               className="flex items-center gap-2.5 rounded-lg bg-primary p-2.5 text-primary-foreground"
             >
-              <div className="grid size-8 place-items-center rounded-md bg-white/20">
-                <TrophyIcon className="size-4" />
-              </div>
+              <Image
+                src="/logo/logo-apenas-desenho-sem-fundo.svg"
+                alt="Palpitô"
+                width={32}
+                height={32}
+                className="size-8 shrink-0 object-contain"
+              />
               <div className="min-w-0">
-                <div className="font-heading text-lg font-bold leading-none">Palpite</div>
+                <div className="font-heading text-lg font-bold leading-none">Palpitô</div>
                 <div className="text-[11px] text-primary-foreground/80">Copa do Mundo 2026</div>
               </div>
             </Link>
@@ -57,8 +61,15 @@ export function AppShell({
         <SidebarInset className="relative bg-transparent">
           <div className="sticky top-0 z-30 flex items-center justify-between border-b border-white/50 bg-background/80 px-3 py-2 backdrop-blur md:hidden dark:border-white/10">
             <SidebarTrigger aria-label="Abrir menu" />
-            <Link href="/app" className="font-heading text-lg font-bold">
-              Palpite
+            <Link href="/app" className="flex items-center gap-1.5 font-heading text-lg font-bold">
+              <Image
+                src="/logo/logo-apenas-desenho-sem-fundo.svg"
+                alt="Palpitô"
+                width={24}
+                height={24}
+                className="size-6 object-contain"
+              />
+              Palpitô
             </Link>
             <ThemeToggle />
           </div>

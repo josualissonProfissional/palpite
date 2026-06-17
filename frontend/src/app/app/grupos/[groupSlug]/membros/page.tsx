@@ -32,11 +32,12 @@ export default async function MembersPage({ params }: { params: Promise<{ groupS
   } = await (await createClient()).auth.getUser();
   const myRole = members.find((member) => member.userId === user?.id)?.role;
   const canManage = myRole === "owner" || myRole === "admin";
+  const canInvite = canManage || Boolean(groupData.group?.allowMemberInvites);
   const groupId = groupData.group?.id;
 
   return (
     <AppShell groupName={groupData.group?.name ?? "Grupo"} groupSlug={groupSlug} teams={worldCup.teams}>
-      <ScreenHeader icon={UsersIcon} eyebrow="Membros" title="Participantes do grupo" description="Veja quem participa do grupo. Donos e administradores podem gerenciar cargos e status." action={<div className="flex flex-wrap items-center gap-2"><Badge variant="secondary">{members.length} listados</Badge><InviteFriendButton groupId={groupData.group?.id} /></div>} />
+      <ScreenHeader icon={UsersIcon} eyebrow="Membros" title="Participantes do grupo" description="Veja quem participa do grupo. Donos e administradores podem gerenciar cargos e status." action={<div className="flex flex-wrap items-center gap-2"><Badge variant="secondary">{members.length} listados</Badge>{canInvite ? <InviteFriendButton groupId={groupData.group?.id} inviteCode={groupData.group?.inviteCode} canInvite={canInvite} /> : null}</div>} />
       {members.length === 0 ? (
         <EmptyState icon={UsersIcon} title="Nenhum membro ainda" description="Os participantes aparecem aqui assim que entrarem no grupo." />
       ) : (

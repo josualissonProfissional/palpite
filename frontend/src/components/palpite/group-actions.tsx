@@ -107,7 +107,6 @@ export function CreateGroupForm({ disabled }: { disabled?: boolean }) {
       const { data, error } = await createClient().functions.invoke("create-group", {
         body: {
           name: String(formData.get("name") ?? ""),
-          slug: String(formData.get("slug") ?? ""),
           description: String(formData.get("description") ?? ""),
         },
       });
@@ -134,10 +133,6 @@ export function CreateGroupForm({ disabled }: { disabled?: boolean }) {
       <div className="space-y-2">
         <Label htmlFor="group-name">Nome</Label>
         <Input id="group-name" name="name" placeholder="Nome do bolao" disabled={disabled || loading} required />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="group-slug">Slug</Label>
-        <Input id="group-slug" name="slug" placeholder="meu-bolao" disabled={disabled || loading} />
       </div>
       <div className="space-y-2">
         <Label htmlFor="group-description">Descricao</Label>

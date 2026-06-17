@@ -86,6 +86,7 @@ export type GroupSummary = {
   slug: string;
   description: string | null;
   inviteCode: string | null;
+  allowMemberInvites: boolean;
   role: "owner" | "admin" | "member";
   status: "active" | "pending" | "blocked" | "left";
   memberCount?: number;

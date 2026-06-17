@@ -228,12 +228,12 @@ export function LiveBoard({ groupId }: { groupId?: string }) {
                 </p>
               ) : (
                 <div className="overflow-x-auto">
-                  <Table className="min-w-[480px]">
+                  <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Participante</TableHead>
                         <TableHead className="text-center">Palpite</TableHead>
-                        <TableHead>Situacao</TableHead>
+                        <TableHead className="hidden sm:table-cell">Situacao</TableHead>
                         <TableHead className="text-right">Pts</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -245,19 +245,24 @@ export function LiveBoard({ groupId }: { groupId?: string }) {
                           <TableRow key={`${row.match_id}-${row.user_id}`}>
                             <TableCell>
                               <div className="flex items-center gap-2">
-                                <Avatar className="size-7 border">
+                                <Avatar className="size-6 border sm:size-7">
                                   {row.avatar_url ? (
                                     <AvatarImage src={row.avatar_url} alt={name} />
                                   ) : null}
-                                  <AvatarFallback>{initials(name) || "P"}</AvatarFallback>
+                                  <AvatarFallback className="text-[10px]">{initials(name) || "P"}</AvatarFallback>
                                 </Avatar>
-                                <span className="max-w-40 truncate font-medium">{name}</span>
+                                <div className="min-w-0">
+                                  <span className="block max-w-28 truncate font-medium sm:max-w-40">{name}</span>
+                                  <span className="text-[11px] text-muted-foreground sm:hidden">
+                                    {statusLabel[status]}
+                                  </span>
+                                </div>
                               </div>
                             </TableCell>
                             <TableCell className="text-center font-semibold tabular-nums">
                               {row.predicted_home ?? "?"} : {row.predicted_away ?? "?"}
                             </TableCell>
-                            <TableCell>
+                            <TableCell className="hidden sm:table-cell">
                               <Badge variant={statusVariant(status)}>{statusLabel[status]}</Badge>
                             </TableCell>
                             <TableCell className="text-right font-bold tabular-nums">

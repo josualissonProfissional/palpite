@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { LogInIcon, PlusIcon, TicketIcon, UsersIcon } from "lucide-react";
+import { ArrowRightIcon, LogInIcon, TicketIcon, UsersIcon } from "lucide-react";
 import { AppShell } from "@/components/palpite/app-shell";
 import { EmptyState } from "@/components/palpite/empty-state";
-import { CreateGroupForm, JoinGroupForm } from "@/components/palpite/group-actions";
+import { JoinGroupForm } from "@/components/palpite/group-actions";
 import { ScreenHeader } from "@/components/palpite/screen-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,24 +26,9 @@ export function GroupsScreen({
         icon={UsersIcon}
         eyebrow="Home"
         title="Meus grupos"
-        description="Escolha um bolao ativo, crie um grupo novo ou entre por codigo de convite."
-        action={
-          authenticated ? (
-            <Button asChild>
-              <a href="#criar-grupo">
-                <PlusIcon className="size-4" />
-                Criar grupo
-              </a>
-            </Button>
-          ) : (
-            <Button disabled>
-              <PlusIcon className="size-4" />
-              Criar grupo
-            </Button>
-          )
-        }
+        description="Escolha um bolao ativo ou entre por codigo de convite."
       />
-      <section className="grid gap-4 lg:grid-cols-[1fr_420px]">
+      <section className="grid gap-4">
         <Card className="border-white/70 bg-white/86 backdrop-blur dark:border-white/10 dark:bg-slate-950/70">
           <CardHeader>
             <CardTitle className="font-heading text-2xl">Grupos ativos</CardTitle>
@@ -70,19 +55,28 @@ export function GroupsScreen({
               />
             ) : (
               groups.map((group) => (
-                <Link
+                <article
                   key={group.id}
-                  href={`/app/grupos/${group.slug}`}
-                  className="rounded-xl border bg-white/80 p-4 transition-colors hover:bg-blue-50 dark:bg-slate-950/70 dark:hover:bg-slate-900"
+                  className="rounded-xl border bg-white/80 p-4 dark:bg-slate-950/70"
                 >
-                  <Badge className="mb-2">{group.role}</Badge>
-                  <h2 className="font-heading text-3xl font-bold">
-                    {group.name}
-                  </h2>
-                  <p className="text-sm text-muted-foreground">
-                    {group.description ?? "Bolao sem descricao"}
-                  </p>
-                </Link>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <Badge className="mb-2">{group.role}</Badge>
+                      <h2 className="font-heading text-3xl font-bold">
+                        {group.name}
+                      </h2>
+                      <p className="text-sm text-muted-foreground">
+                        {group.description ?? "Bolao sem descricao"}
+                      </p>
+                    </div>
+                    <Button asChild className="w-full sm:w-auto">
+                      <Link href={`/app/grupos/${group.slug}`}>
+                        Entrar no grupo
+                        <ArrowRightIcon className="size-4" />
+                      </Link>
+                    </Button>
+                  </div>
+                </article>
               ))
             )}
             <div className="rounded-xl border border-dashed bg-white/60 p-4 dark:border-white/10 dark:bg-slate-950/55">
@@ -97,15 +91,6 @@ export function GroupsScreen({
               </div>
               <JoinGroupForm disabled={!authenticated} />
             </div>
-          </CardContent>
-        </Card>
-
-        <Card id="criar-grupo" className="scroll-mt-4 border-white/70 bg-white/86 backdrop-blur dark:border-white/10 dark:bg-slate-950/70">
-          <CardHeader>
-            <CardTitle className="font-heading text-2xl">Criar bolao</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <CreateGroupForm disabled={!authenticated} />
           </CardContent>
         </Card>
       </section>

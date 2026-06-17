@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 export default async function ProfilePage() {
   const [profileData, worldCup] = await Promise.all([getProfile(), getWorldCupData()]);
   const profile = profileData.profile;
-  const name = profile?.nickname ?? profile?.full_name ?? "";
+  const name = profile?.full_name ?? profile?.nickname ?? "";
 
   return (
     <AppShell groupName="Perfil" teams={worldCup.teams}>

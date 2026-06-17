@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogInIcon, TrophyIcon } from "lucide-react";
+import { LogInIcon, TrophyIcon, UserCheckIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,7 +43,31 @@ export function InviteAccept({ code }: InviteAcceptProps) {
   const router = useRouter();
   const [mode, setMode] = useState<"signup" | "login">("signup");
   const [loading, setLoading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [hasSession, setHasSession] = useState(false);
   const isSignup = mode === "signup";
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      if (!canUseSupabase()) {
+        if (active) setCheckingSession(false);
+        return;
+      }
+
+      const {
+        data: { user },
+      } = await createClient().auth.getUser();
+
+      if (!active) return;
+      setHasSession(Boolean(user));
+      setCheckingSession(false);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function joinAndRedirect(supabase: ReturnType<typeof createClient>) {
     const { data, error } = await supabase.functions.invoke("join-group", {
@@ -111,12 +135,62 @@ export function InviteAccept({ code }: InviteAcceptProps) {
     }
   }
 
+  async function handleCurrentAccountJoin() {
+    if (!canUseSupabase()) {
+      toast.error("O aplicativo esta temporariamente indisponivel. Tente novamente em instantes.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await joinAndRedirect(createClient());
+    } catch (error) {
+      toast.error(await getFunctionErrorMessage(error));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (hasSession) {
+    return (
+      <div className="space-y-4" aria-busy={loading}>
+        <BackendLoadingOverlay active={loading} label="Entrando no bolao..." />
+        <div className="rounded-xl border bg-white/70 p-4 text-sm dark:border-white/10 dark:bg-slate-950/60">
+          Voce ja esta conectado. Aceite o convite para adicionar sua conta atual a este grupo.
+        </div>
+        <Button className="w-full" disabled={loading} onClick={handleCurrentAccountJoin}>
+          <InlineLoading active={loading} />
+          {!loading && <UserCheckIcon className="size-4" />}
+          {loading ? "Entrando..." : "Entrar com minha conta"}
+        </Button>
+        <Button
+          type="button"
+          variant="link"
+          className="h-auto w-full p-0 text-sm"
+          disabled={loading}
+          onClick={async () => {
+            await createClient().auth.signOut();
+            setHasSession(false);
+            setMode("login");
+          }}
+        >
+          Usar outra conta
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <form action={handleSubmit} className="space-y-4" aria-busy={loading}>
       <BackendLoadingOverlay
         active={loading}
         label={isSignup ? "Criando sua conta..." : "Entrando no bolao..."}
       />
+      {checkingSession ? (
+        <div className="rounded-xl border bg-white/70 p-3 text-sm text-muted-foreground dark:border-white/10 dark:bg-slate-950/60">
+          Verificando se voce ja esta conectado...
+        </div>
+      ) : null}
       {isSignup ? (
         <div className="space-y-2">
           <Label htmlFor="invite-name">Nome</Label>
