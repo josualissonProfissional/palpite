@@ -196,7 +196,9 @@ function MatchGrid({
   return (
     <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
       {matches.map((match) => (
-        <MatchCard key={match.id} match={match} groupId={groupId} />
+        <div key={match.id} id={`match-${match.id}`} className="scroll-mt-24">
+          <MatchCard match={match} groupId={groupId} />
+        </div>
       ))}
     </div>
   );
@@ -211,8 +213,11 @@ export function MatchList({
   groupId?: string;
   groupName?: string;
 }) {
-  const { matches: liveMatches, connected } = useLiveMatches(matches);
-  const currentLiveMatch = liveMatches.find((match) => match.status === "live");
+  const { matches: liveMatches, connected } = useLiveMatches(matches, groupId);
+  const popupMatch =
+    liveMatches.find((match) => match.status === "live") ??
+    liveMatches.find((match) => match.status === "scheduled");
+  const popupMode = popupMatch?.status === "live" ? "live" : "next";
 
   if (liveMatches.length === 0) {
     return (
@@ -240,7 +245,7 @@ export function MatchList({
 
   return (
     <>
-      <LiveMatchFloatingPopup match={currentLiveMatch} />
+      <LiveMatchFloatingPopup match={popupMatch} mode={popupMode} />
       <Tabs defaultValue="games" className="gap-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <TabsList className="h-auto w-full flex-wrap justify-start gap-1 sm:w-fit">
@@ -330,7 +335,7 @@ export function MatchList({
   );
 }
 
-function LiveMatchFloatingPopup({ match }: { match?: Match }) {
+function LiveMatchFloatingPopup({ match, mode }: { match?: Match; mode: "live" | "next" }) {
   const popupRef = useRef<HTMLDivElement | null>(null);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
   const [position, setPosition] = useState({ x: 16, y: 120 });
@@ -339,11 +344,18 @@ function LiveMatchFloatingPopup({ match }: { match?: Match }) {
   const status = match?.scoreStatus ?? "pending";
   const visual = livePopupStatus[status];
   const highlight = match ? getPredictionHighlight(match) : null;
+  const isLive = mode === "live";
 
   const statusTitle = useMemo(() => {
+    if (!isLive && match) {
+      const hasPrediction =
+        typeof match.predictedHome === "number" &&
+        typeof match.predictedAway === "number";
+      return hasPrediction ? "Palpite salvo" : "Palpite pendente";
+    }
     if (!highlight?.title) return visual.title;
     return highlight.title;
-  }, [highlight?.title, visual.title]);
+  }, [highlight?.title, isLive, match, visual.title]);
 
   useEffect(() => {
     function placePopup() {
@@ -362,13 +374,25 @@ function LiveMatchFloatingPopup({ match }: { match?: Match }) {
 
   if (!match || closedMatchId === match.id) return null;
 
+  const matchId = match.id;
   const points = match.points ?? 0;
   const hasPrediction =
     typeof match.predictedHome === "number" && typeof match.predictedAway === "number";
+  const statusDetail = !isLive
+    ? hasPrediction
+      ? "Seu palpite ja esta pronto para este jogo."
+      : "Adicione seu palpite antes da bola rolar."
+    : highlight?.description ?? visual.detail;
+  const statusBadge = !isLive
+    ? hasPrediction
+      ? "Salvo"
+      : "Sem palpite"
+    : highlight?.badgeLabel ?? scoreStatusCopy[status];
+  const headerLabel = isLive ? "Ao vivo" : "Proximo jogo";
 
   function clampPosition(nextX: number, nextY: number) {
-    const width = popupRef.current?.offsetWidth ?? 336;
-    const height = popupRef.current?.offsetHeight ?? 230;
+    const width = popupRef.current?.offsetWidth ?? 300;
+    const height = popupRef.current?.offsetHeight ?? 210;
     return {
       x: Math.min(Math.max(8, nextX), Math.max(8, window.innerWidth - width - 8)),
       y: Math.min(Math.max(72, nextY), Math.max(72, window.innerHeight - height - 8)),
@@ -403,16 +427,23 @@ function LiveMatchFloatingPopup({ match }: { match?: Match }) {
     }
   }
 
+  function focusMatchCard() {
+    document.getElementById(`match-${matchId}`)?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }
+
   return (
     <div
       ref={popupRef}
-      className={`fixed z-40 w-[min(calc(100vw-1rem),21rem)] rounded-2xl border p-3 backdrop-blur-xl transition-shadow ${visual.border}`}
+      className={`fixed z-40 w-[min(calc(100vw-0.75rem),16.75rem)] rounded-2xl border p-2.5 backdrop-blur-xl transition-shadow sm:w-[21rem] sm:p-3 ${visual.border}`}
       style={{ left: position.x, top: position.y }}
       role="status"
       aria-live="polite"
     >
       <div
-        className={`mb-3 flex cursor-grab touch-none select-none items-center justify-between gap-3 ${dragging ? "cursor-grabbing" : ""}`}
+        className={`mb-2 flex cursor-grab touch-none select-none items-center justify-between gap-2 sm:mb-3 sm:gap-3 ${dragging ? "cursor-grabbing" : ""}`}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -420,67 +451,90 @@ function LiveMatchFloatingPopup({ match }: { match?: Match }) {
       >
         <div className="flex items-center gap-2">
           <span className="relative flex size-3">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
-            <span className="relative inline-flex size-3 rounded-full bg-red-600 shadow-[0_0_16px_rgba(220,38,38,0.9)]" />
+            <span
+              className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 ${
+                isLive ? "bg-red-500" : "bg-sky-500"
+              }`}
+            />
+            <span
+              className={`relative inline-flex size-3 rounded-full ${
+                isLive
+                  ? "bg-red-600 shadow-[0_0_16px_rgba(220,38,38,0.9)]"
+                  : "bg-sky-600 shadow-[0_0_16px_rgba(2,132,199,0.75)]"
+              }`}
+            />
           </span>
-          <span className="text-xs font-black uppercase tracking-[0.18em] text-red-600 dark:text-red-300">
-            Ao vivo
+          <span
+            className={`text-[10px] font-black uppercase tracking-[0.16em] sm:text-xs sm:tracking-[0.18em] ${
+              isLive ? "text-red-600 dark:text-red-300" : "text-sky-700 dark:text-sky-300"
+            }`}
+          >
+            {headerLabel}
           </span>
         </div>
         <Button
           type="button"
           size="icon"
           variant="ghost"
-          className="size-7 rounded-full"
+          className="size-6 rounded-full sm:size-7"
           aria-label="Fechar placar ao vivo"
           onClick={() => setClosedMatchId(match.id)}
         >
-          <XIcon className="size-4" />
+          <XIcon className="size-3.5 sm:size-4" />
         </Button>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-2 sm:space-y-3">
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
           <div className="min-w-0 space-y-1 text-left">
             <TeamFlag team={match.home} size="sm" className="justify-start" />
-            <p className="truncate text-xs font-bold">{match.home.shortName}</p>
+            <p className="truncate text-[11px] font-bold sm:text-xs">{match.home.shortName}</p>
           </div>
-          <div className="rounded-xl bg-slate-950 px-3 py-2 text-center text-lg font-black text-white shadow-lg shadow-red-950/20 ring-2 ring-red-400/45">
+          <div
+            className={`rounded-xl bg-slate-950 px-2.5 py-1.5 text-center text-base font-black text-white shadow-lg sm:px-3 sm:py-2 sm:text-lg ${
+              isLive ? "shadow-red-950/20 ring-2 ring-red-400/45" : "shadow-sky-950/15 ring-2 ring-sky-400/35"
+            }`}
+          >
             {match.homeScore ?? "-"} : {match.awayScore ?? "-"}
           </div>
           <div className="min-w-0 space-y-1 text-right">
             <TeamFlag team={match.away} size="sm" className="justify-end" />
-            <p className="truncate text-xs font-bold">{match.away.shortName}</p>
+            <p className="truncate text-[11px] font-bold sm:text-xs">{match.away.shortName}</p>
           </div>
         </div>
 
-        <div className={`rounded-xl border p-3 ${visual.panel}`}>
-          <div className="flex items-start justify-between gap-3">
+        <div className={`rounded-xl border p-2.5 sm:p-3 ${visual.panel}`}>
+          <div className="flex items-start justify-between gap-2 sm:gap-3">
             <div>
-              <p className="text-sm font-black">{statusTitle}</p>
-              <p className="text-xs opacity-80">{highlight?.description ?? visual.detail}</p>
+              <p className="text-xs font-black sm:text-sm">{statusTitle}</p>
+              <p className="text-[11px] opacity-80 sm:text-xs">{statusDetail}</p>
             </div>
-            <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-black ${visual.badge}`}>
-              {highlight?.badgeLabel ?? scoreStatusCopy[status]}
+            <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black sm:text-xs ${visual.badge}`}>
+              {statusBadge}
             </span>
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div className="rounded-lg border border-white/60 bg-white/65 p-2 dark:border-white/10 dark:bg-slate-950/45">
-            <p className="font-medium text-muted-foreground">Seu palpite</p>
-            <p className="text-base font-black tabular-nums">
+            <p className="text-[11px] font-medium text-muted-foreground sm:text-xs">Seu palpite</p>
+            <p className="text-sm font-black tabular-nums sm:text-base">
               {hasPrediction ? `${match.predictedHome} x ${match.predictedAway}` : "--"}
             </p>
           </div>
           <div className="rounded-lg border border-white/60 bg-white/65 p-2 text-right dark:border-white/10 dark:bg-slate-950/45">
-            <p className="font-medium text-muted-foreground">Pontos</p>
-            <p className="text-base font-black tabular-nums">
+            <p className="text-[11px] font-medium text-muted-foreground sm:text-xs">Pontos</p>
+            <p className="text-sm font-black tabular-nums sm:text-base">
               {points > 0 ? "+" : ""}
               {points}
             </p>
           </div>
         </div>
+        {!isLive && !hasPrediction ? (
+          <Button size="sm" className="h-8 w-full text-xs" onClick={focusMatchCard}>
+            Adicionar palpite
+          </Button>
+        ) : null}
       </div>
     </div>
   );
