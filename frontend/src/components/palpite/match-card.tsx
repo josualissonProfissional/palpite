@@ -6,9 +6,12 @@ import {
   CalendarClockIcon,
   CalendarOffIcon,
   ClockIcon,
+  CircleCheckIcon,
+  HandshakeIcon,
   ListChecksIcon,
   LockIcon,
   RadioIcon,
+  SparklesIcon,
   TrophyIcon,
   UsersIcon,
   XCircleIcon,
@@ -63,6 +66,12 @@ function yesterdayKey() {
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
   return dateKey(yesterday);
+}
+
+function scoreOutcome(home: number, away: number) {
+  if (home > away) return "home";
+  if (away > home) return "away";
+  return "draw";
 }
 
 function MatchGrid({
@@ -345,9 +354,49 @@ function MyPredictionsPanel({ matches, groupName }: { matches: Match[]; groupNam
 function PredictionSummaryCard({ match }: { match: Match }) {
   const points = match.points ?? 0;
   const scoreStatus = match.scoreStatus ?? "pending";
+  const hasResult =
+    typeof match.homeScore === "number" &&
+    typeof match.awayScore === "number" &&
+    typeof match.predictedHome === "number" &&
+    typeof match.predictedAway === "number";
+  const resultOutcome = hasResult ? scoreOutcome(match.homeScore as number, match.awayScore as number) : null;
+  const predictedOutcome = hasResult ? scoreOutcome(match.predictedHome as number, match.predictedAway as number) : null;
+  const isExactScore = scoreStatus === "correct";
+  const isOutcomeHit = scoreStatus === "partial" && resultOutcome === predictedOutcome;
+  const isDrawHit = isOutcomeHit && resultOutcome === "draw";
+  const HighlightIcon = isExactScore ? SparklesIcon : isDrawHit ? HandshakeIcon : CircleCheckIcon;
+  const highlightTitle = isExactScore
+    ? "Placar exato!"
+    : isDrawHit
+      ? "Empate acertado!"
+      : isOutcomeHit
+        ? "Vencedor acertado!"
+        : null;
+  const highlightDescription = isExactScore
+    ? "Você cravou o placar do jogo."
+    : isDrawHit
+      ? "Você acertou que o jogo terminaria empatado."
+      : isOutcomeHit
+        ? "Você acertou quem venceu a partida."
+        : null;
+  const badgeLabel = isExactScore
+    ? "Placar exato"
+    : isDrawHit
+      ? "Empate"
+      : isOutcomeHit
+        ? "Vitória"
+        : scoreStatusCopy[scoreStatus];
 
   return (
-    <Card className="border-white/70 bg-white/86 shadow-sm dark:border-white/10 dark:bg-slate-950/70">
+    <Card
+      className={`${
+        isExactScore
+          ? "palpite-exact-prediction-card border-transparent bg-amber-50/90 shadow-lg ring-0 dark:bg-amber-950/25"
+          : isOutcomeHit
+            ? "border-emerald-300/80 bg-emerald-50/90 shadow-md shadow-emerald-950/10 ring-1 ring-emerald-300/50 dark:border-emerald-400/30 dark:bg-emerald-950/25 dark:ring-emerald-400/25"
+            : "border-white/70 bg-white/86 shadow-sm dark:border-white/10 dark:bg-slate-950/70"
+      }`}
+    >
       <CardHeader className="flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
         <div>
           <CardTitle className="text-sm">
@@ -355,12 +404,44 @@ function PredictionSummaryCard({ match }: { match: Match }) {
           </CardTitle>
           <p className="text-xs text-muted-foreground">{match.date}</p>
         </div>
-        <Badge variant={scoreStatus === "correct" ? "default" : "secondary"}>
-          {scoreStatusCopy[scoreStatus]}
+        <Badge
+          variant={isExactScore || isOutcomeHit ? "default" : "secondary"}
+          className={
+            isExactScore
+              ? "bg-amber-500 text-white shadow-sm shadow-amber-500/30"
+              : isOutcomeHit
+                ? "bg-emerald-600 text-white shadow-sm shadow-emerald-600/25"
+                : undefined
+          }
+        >
+          {badgeLabel}
         </Badge>
       </CardHeader>
       <CardContent className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
         <div className="grid gap-2">
+          {highlightTitle ? (
+            <div
+              className={`flex items-start gap-2 rounded-lg border p-3 ${
+                isExactScore
+                  ? "border-amber-300/80 bg-amber-100/80 text-amber-950 dark:border-amber-300/30 dark:bg-amber-400/10 dark:text-amber-100"
+                  : "border-emerald-300/80 bg-emerald-100/80 text-emerald-950 dark:border-emerald-300/30 dark:bg-emerald-400/10 dark:text-emerald-100"
+              }`}
+            >
+              <div
+                className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full ${
+                  isExactScore
+                    ? "bg-amber-500 text-white shadow-sm shadow-amber-500/40"
+                    : "bg-emerald-600 text-white shadow-sm shadow-emerald-600/30"
+                }`}
+              >
+                <HighlightIcon className="size-4" />
+              </div>
+              <div>
+                <p className="text-sm font-bold">{highlightTitle}</p>
+                <p className="text-xs opacity-80">{highlightDescription}</p>
+              </div>
+            </div>
+          ) : null}
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span className="text-muted-foreground">Seu palpite</span>
             <span className="font-semibold">
@@ -379,7 +460,15 @@ function PredictionSummaryCard({ match }: { match: Match }) {
             <p className="text-sm text-muted-foreground">Aguardando resultado.</p>
           )}
         </div>
-        <div className="rounded-lg bg-slate-950 px-3 py-2 text-center text-sm font-semibold text-white">
+        <div
+          className={`rounded-lg px-3 py-2 text-center text-sm font-semibold text-white ${
+            isExactScore
+              ? "bg-amber-500 shadow-md shadow-amber-500/30"
+              : isOutcomeHit
+                ? "bg-emerald-600 shadow-md shadow-emerald-600/25"
+                : "bg-slate-950"
+          }`}
+        >
           {points > 0 ? "+" : ""}
           {points} pts
         </div>
