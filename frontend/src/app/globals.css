@@ -161,14 +161,14 @@
   }
 
   .byline-gradient-text .text-type__content {
-    background: linear-gradient(90deg, #f97316, #ec4899, #2563eb, #14b8a6);
+    background: linear-gradient(90deg, #64748b, #2563eb, #0f766e);
     background-clip: text;
     color: transparent !important;
     -webkit-background-clip: text;
   }
 
   .byline-gradient-cursor {
-    color: #2563eb;
+    color: #64748b;
   }
 
   .world-cup-grid {

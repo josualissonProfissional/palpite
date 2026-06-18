@@ -35,8 +35,8 @@ const socialLinks = [
 
 export function CreatorFooter() {
   return (
-    <footer className="relative z-20 border-t border-white/60 bg-background/86 px-4 py-5 backdrop-blur dark:border-white/10">
-      <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-3 text-center sm:flex-row sm:text-left">
+    <footer className="relative z-20 border-t border-white/60 bg-background/86 px-4 py-3 backdrop-blur dark:border-white/10">
+      <div className="mx-auto flex w-full max-w-6xl flex-row flex-wrap items-center justify-center gap-3 text-center sm:justify-between sm:text-left">
         <TextType
           as="p"
           text={["By: Josué Alisson"]}
@@ -46,7 +46,7 @@ export function CreatorFooter() {
           loop
           showCursor
           cursorCharacter="|"
-          className="byline-gradient-text min-h-6 font-heading text-lg font-bold tracking-normal sm:text-xl"
+          className="byline-gradient-text min-h-5 font-heading text-base font-bold tracking-normal sm:text-lg"
           cursorClassName="byline-gradient-cursor"
         />
         <nav aria-label="Redes sociais de Josué Alisson" className="flex items-center gap-2">
@@ -56,7 +56,7 @@ export function CreatorFooter() {
               href={link.href}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex size-9 items-center justify-center rounded-lg border border-white/70 bg-white/70 text-muted-foreground shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40 hover:text-primary hover:shadow-md dark:border-white/10 dark:bg-slate-950/70"
+              className="inline-flex size-8 items-center justify-center rounded-lg border border-white/70 bg-white/70 text-muted-foreground shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40 hover:text-primary hover:shadow-md dark:border-white/10 dark:bg-slate-950/70"
               aria-label={link.label}
               title={link.label}
             >

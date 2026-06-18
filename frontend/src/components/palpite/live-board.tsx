@@ -116,6 +116,14 @@ const statusLabel: Record<ScoreStatus, string> = {
   pending: "Aguardando",
 };
 
+const statusShareEmoji: Record<ScoreStatus, string> = {
+  correct: "🏆",
+  partial: "✅",
+  wrong: "❌",
+  inverse_penalty: "🔄",
+  pending: "⏳",
+};
+
 const boardFilters: { value: BoardFilter; label: string }[] = [
   { value: "today", label: "Hoje" },
   { value: "yesterday", label: "Ontem" },
@@ -134,27 +142,38 @@ function statusVariant(status: ScoreStatus): "default" | "secondary" | "destruct
 }
 
 function buildMatchShareText(info: LiveBoardRow, participants: LiveBoardRow[]) {
-  const lines = [
-    `Palpites - ${info.home_label} x ${info.away_label}`,
+  const matchTitle = `${info.home_label} x ${info.away_label}`;
+  const resultText =
     info.home_score === null || info.away_score === null
-      ? "Placar ainda nao iniciado"
-      : `Resultado: ${info.home_score} x ${info.away_score}`,
+      ? "⏳ Placar ainda nao iniciado"
+      : `📊 Resultado atual: ${info.home_score} x ${info.away_score}`;
+  const lines = [
+    `🏆⚽ Palpites da Copa - ${matchTitle}`,
+    resultText,
+    "",
+    "Bora conferir quem esta mandando bem nesse jogo? 🌍⚽",
     "",
   ];
 
   if (participants.length === 0) {
-    lines.push("Sem palpites neste jogo.");
+    lines.push("Ainda nao tem palpites nesse jogo. Chama a galera para entrar na disputa! ⚽");
   } else {
     participants.slice(0, 16).forEach((row, index) => {
       const name = row.display_name ?? "Participante";
-      const status = row.score_status ? `, ${statusLabel[row.score_status]}` : "";
+      const status = row.score_status ?? "pending";
+      const podium = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : "⚽";
       lines.push(
-        `${index + 1}. ${name}: ${row.predicted_home ?? "?"} x ${row.predicted_away ?? "?"} (${row.points} pts${status})`
+        `${podium} ${index + 1}. ${name}: ${row.predicted_home ?? "?"} x ${
+          row.predicted_away ?? "?"
+        } | ${row.points} pts | ${statusShareEmoji[status]} ${statusLabel[status]}`
       );
     });
+    if (participants.length > 16) {
+      lines.push(`... e mais ${participants.length - 16} participante(s) na disputa.`);
+    }
   }
 
-  lines.push("", `Acesse: ${getBaseUrl()}`);
+  lines.push("", "Entre, faca seu palpite e veja se voce sobe no ranking! 🏆⚽", `Acesse: ${getBaseUrl()}`);
   return lines.join("\n");
 }
 
