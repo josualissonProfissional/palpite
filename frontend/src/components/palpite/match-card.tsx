@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import {
   CalendarCheckIcon,
   CalendarClockIcon,
@@ -15,6 +15,7 @@ import {
   TrophyIcon,
   type LucideIcon,
   UsersIcon,
+  XIcon,
   XCircleIcon,
 } from "lucide-react";
 import { EmptyState } from "@/components/palpite/empty-state";
@@ -47,6 +48,50 @@ const scoreStatusCopy: Record<NonNullable<Match["scoreStatus"]>, string> = {
   wrong: "Errou",
   inverse_penalty: "Errou",
 };
+
+const livePopupStatus = {
+  correct: {
+    border: "palpite-exact-prediction-card border-transparent bg-amber-50/95 shadow-2xl shadow-amber-950/20 dark:bg-amber-950/35",
+    badge: "bg-amber-500 text-white shadow-sm shadow-amber-500/40",
+    panel: "border-amber-300/80 bg-amber-100/85 text-amber-950 dark:border-amber-300/30 dark:bg-amber-400/10 dark:text-amber-100",
+    title: "Placar exato!",
+    detail: "Voce esta cravando o placar.",
+  },
+  partial: {
+    border: "border-emerald-300/80 bg-emerald-50/95 shadow-2xl shadow-emerald-950/15 ring-1 ring-emerald-300/50 dark:border-emerald-400/30 dark:bg-emerald-950/35 dark:ring-emerald-400/25",
+    badge: "bg-emerald-600 text-white shadow-sm shadow-emerald-600/30",
+    panel: "border-emerald-300/80 bg-emerald-100/85 text-emerald-950 dark:border-emerald-300/30 dark:bg-emerald-400/10 dark:text-emerald-100",
+    title: "Palpite batendo!",
+    detail: "Voce esta acertando o caminho do jogo.",
+  },
+  wrong: {
+    border: "border-rose-300/80 bg-rose-50/95 shadow-2xl shadow-rose-950/15 ring-1 ring-rose-300/50 dark:border-rose-400/30 dark:bg-rose-950/35 dark:ring-rose-400/25",
+    badge: "bg-rose-600 text-white shadow-sm shadow-rose-600/30",
+    panel: "border-rose-300/80 bg-rose-100/85 text-rose-950 dark:border-rose-300/30 dark:bg-rose-400/10 dark:text-rose-100",
+    title: "Palpite em risco",
+    detail: "O resultado atual nao favorece seu palpite.",
+  },
+  inverse_penalty: {
+    border: "border-rose-300/80 bg-rose-50/95 shadow-2xl shadow-rose-950/15 ring-1 ring-rose-300/50 dark:border-rose-400/30 dark:bg-rose-950/35 dark:ring-rose-400/25",
+    badge: "bg-rose-700 text-white shadow-sm shadow-rose-700/30",
+    panel: "border-rose-300/80 bg-rose-100/85 text-rose-950 dark:border-rose-300/30 dark:bg-rose-400/10 dark:text-rose-100",
+    title: "Placar invertido",
+    detail: "O placar esta contra o seu palpite.",
+  },
+  pending: {
+    border: "border-sky-300/80 bg-white/95 shadow-2xl shadow-slate-950/15 ring-1 ring-sky-300/45 dark:border-sky-400/30 dark:bg-slate-950/88 dark:ring-sky-400/20",
+    badge: "bg-sky-600 text-white shadow-sm shadow-sky-600/30",
+    panel: "border-sky-300/80 bg-sky-100/80 text-sky-950 dark:border-sky-300/30 dark:bg-sky-400/10 dark:text-sky-100",
+    title: "Acompanhando ao vivo",
+    detail: "O jogo esta rolando agora.",
+  },
+} satisfies Record<NonNullable<Match["scoreStatus"]>, {
+  border: string;
+  badge: string;
+  panel: string;
+  title: string;
+  detail: string;
+}>;
 
 function dateKey(value: Date | string) {
   return new Intl.DateTimeFormat("en-CA", {
@@ -167,6 +212,7 @@ export function MatchList({
   groupName?: string;
 }) {
   const { matches: liveMatches, connected } = useLiveMatches(matches);
+  const currentLiveMatch = liveMatches.find((match) => match.status === "live");
 
   if (liveMatches.length === 0) {
     return (
@@ -193,91 +239,250 @@ export function MatchList({
         : "past";
 
   return (
-    <Tabs defaultValue="games" className="gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <TabsList className="h-auto w-full flex-wrap justify-start gap-1 sm:w-fit">
-          <TabsTrigger value="games" className="h-9 px-3">
-            <CalendarClockIcon className="size-4" />
-            Jogos
-          </TabsTrigger>
-          <TabsTrigger value="mine" className="h-9 px-3">
-            <ListChecksIcon className="size-4" />
-            Meus palpites
-          </TabsTrigger>
-          <TabsTrigger value="geral" className="h-9 px-3">
-            <UsersIcon className="size-4" />
-            Geral
-          </TabsTrigger>
-        </TabsList>
-        <Badge
-          variant={connected ? "default" : "secondary"}
-          className="gap-1"
-          title={connected ? "Conectado ao placar ao vivo" : "Conectando ao placar ao vivo"}
-        >
-          <RadioIcon className={connected ? "size-3 animate-pulse" : "size-3"} />
-          {connected ? "Ao vivo conectado" : "Conectando..."}
-        </Badge>
-      </div>
-
-      <TabsContent value="games">
-        <Tabs defaultValue={defaultGamesTab} className="gap-4">
+    <>
+      <LiveMatchFloatingPopup match={currentLiveMatch} />
+      <Tabs defaultValue="games" className="gap-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <TabsList className="h-auto w-full flex-wrap justify-start gap-1 sm:w-fit">
-            <TabsTrigger value="today" className="h-9 px-3">
-              Jogos de hoje
-              <Badge variant="secondary">{matchesByDate.today.length}</Badge>
+            <TabsTrigger value="games" className="h-9 px-3">
+              <CalendarClockIcon className="size-4" />
+              Jogos
             </TabsTrigger>
-            <TabsTrigger value="past" className="h-9 px-3">
-              Jogos passados
-              <Badge variant="secondary">{matchesByDate.past.length}</Badge>
+            <TabsTrigger value="mine" className="h-9 px-3">
+              <ListChecksIcon className="size-4" />
+              Meus palpites
             </TabsTrigger>
-            <TabsTrigger value="tomorrow" className="h-9 px-3">
-              Jogos de amanha
-              <Badge variant="secondary">{matchesByDate.tomorrow.length}</Badge>
+            <TabsTrigger value="geral" className="h-9 px-3">
+              <UsersIcon className="size-4" />
+              Geral
             </TabsTrigger>
           </TabsList>
-
-          <TabsContent value="today">
-            <MatchGrid
-              matches={matchesByDate.today}
-              groupId={groupId}
-              emptyTitle="Nenhum jogo hoje"
-              emptyDescription="Quando houver jogo marcado para hoje, ele aparece aqui."
-            />
-          </TabsContent>
-          <TabsContent value="past">
-            <MatchGrid
-              matches={matchesByDate.past}
-              groupId={groupId}
-              emptyTitle="Nenhum jogo passado"
-              emptyDescription="Os jogos finalizados ou com data anterior aparecem aqui."
-            />
-          </TabsContent>
-          <TabsContent value="tomorrow">
-            <MatchGrid
-              matches={matchesByDate.tomorrow}
-              groupId={groupId}
-              emptyTitle="Nenhum jogo amanha"
-              emptyDescription="Quando houver jogo marcado para amanha, ele aparece aqui."
-            />
-          </TabsContent>
-        </Tabs>
-      </TabsContent>
-
-      <TabsContent value="mine">
-        <MyPredictionsPanel matches={liveMatches} groupName={groupName} />
-      </TabsContent>
-
-      <TabsContent value="geral" className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm font-medium text-muted-foreground">
-            Compartilhe ranking, palpites de todos ou os dois juntos.
-          </p>
-          <ShareGroupSummary groupId={groupId} groupName={groupName} />
+          <Badge
+            variant={connected ? "default" : "secondary"}
+            className="gap-1"
+            title={connected ? "Conectado ao placar ao vivo" : "Conectando ao placar ao vivo"}
+          >
+            <RadioIcon className={connected ? "size-3 animate-pulse" : "size-3"} />
+            {connected ? "Ao vivo conectado" : "Conectando..."}
+          </Badge>
         </div>
-        <LiveRanking groupId={groupId} />
-        <LiveBoard groupId={groupId} />
-      </TabsContent>
-    </Tabs>
+
+        <TabsContent value="games">
+          <Tabs defaultValue={defaultGamesTab} className="gap-4">
+            <TabsList className="h-auto w-full flex-wrap justify-start gap-1 sm:w-fit">
+              <TabsTrigger value="today" className="h-9 px-3">
+                Jogos de hoje
+                <Badge variant="secondary">{matchesByDate.today.length}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="past" className="h-9 px-3">
+                Jogos passados
+                <Badge variant="secondary">{matchesByDate.past.length}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="tomorrow" className="h-9 px-3">
+                Jogos de amanha
+                <Badge variant="secondary">{matchesByDate.tomorrow.length}</Badge>
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="today">
+              <MatchGrid
+                matches={matchesByDate.today}
+                groupId={groupId}
+                emptyTitle="Nenhum jogo hoje"
+                emptyDescription="Quando houver jogo marcado para hoje, ele aparece aqui."
+              />
+            </TabsContent>
+            <TabsContent value="past">
+              <MatchGrid
+                matches={matchesByDate.past}
+                groupId={groupId}
+                emptyTitle="Nenhum jogo passado"
+                emptyDescription="Os jogos finalizados ou com data anterior aparecem aqui."
+              />
+            </TabsContent>
+            <TabsContent value="tomorrow">
+              <MatchGrid
+                matches={matchesByDate.tomorrow}
+                groupId={groupId}
+                emptyTitle="Nenhum jogo amanha"
+                emptyDescription="Quando houver jogo marcado para amanha, ele aparece aqui."
+              />
+            </TabsContent>
+          </Tabs>
+        </TabsContent>
+
+        <TabsContent value="mine">
+          <MyPredictionsPanel matches={liveMatches} groupName={groupName} />
+        </TabsContent>
+
+        <TabsContent value="geral" className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium text-muted-foreground">
+              Compartilhe ranking, palpites de todos ou os dois juntos.
+            </p>
+            <ShareGroupSummary groupId={groupId} groupName={groupName} />
+          </div>
+          <LiveRanking groupId={groupId} />
+          <LiveBoard groupId={groupId} />
+        </TabsContent>
+      </Tabs>
+    </>
+  );
+}
+
+function LiveMatchFloatingPopup({ match }: { match?: Match }) {
+  const popupRef = useRef<HTMLDivElement | null>(null);
+  const dragOffsetRef = useRef({ x: 0, y: 0 });
+  const [position, setPosition] = useState({ x: 16, y: 120 });
+  const [dragging, setDragging] = useState(false);
+  const [closedMatchId, setClosedMatchId] = useState<string | null>(null);
+  const status = match?.scoreStatus ?? "pending";
+  const visual = livePopupStatus[status];
+  const highlight = match ? getPredictionHighlight(match) : null;
+
+  const statusTitle = useMemo(() => {
+    if (!highlight?.title) return visual.title;
+    return highlight.title;
+  }, [highlight?.title, visual.title]);
+
+  useEffect(() => {
+    function placePopup() {
+      const width = popupRef.current?.offsetWidth ?? 336;
+      const height = popupRef.current?.offsetHeight ?? 230;
+      setPosition({
+        x: Math.max(8, window.innerWidth - width - 20),
+        y: Math.max(84, window.innerHeight - height - 24),
+      });
+    }
+
+    placePopup();
+    window.addEventListener("resize", placePopup);
+    return () => window.removeEventListener("resize", placePopup);
+  }, [match?.id]);
+
+  if (!match || closedMatchId === match.id) return null;
+
+  const points = match.points ?? 0;
+  const hasPrediction =
+    typeof match.predictedHome === "number" && typeof match.predictedAway === "number";
+
+  function clampPosition(nextX: number, nextY: number) {
+    const width = popupRef.current?.offsetWidth ?? 336;
+    const height = popupRef.current?.offsetHeight ?? 230;
+    return {
+      x: Math.min(Math.max(8, nextX), Math.max(8, window.innerWidth - width - 8)),
+      y: Math.min(Math.max(72, nextY), Math.max(72, window.innerHeight - height - 8)),
+    };
+  }
+
+  function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    const rect = popupRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    dragOffsetRef.current = {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+    setDragging(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handlePointerMove(event: PointerEvent<HTMLDivElement>) {
+    if (!dragging) return;
+    const next = clampPosition(
+      event.clientX - dragOffsetRef.current.x,
+      event.clientY - dragOffsetRef.current.y,
+    );
+    setPosition(next);
+  }
+
+  function handlePointerUp(event: PointerEvent<HTMLDivElement>) {
+    setDragging(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  return (
+    <div
+      ref={popupRef}
+      className={`fixed z-40 w-[min(calc(100vw-1rem),21rem)] rounded-2xl border p-3 backdrop-blur-xl transition-shadow ${visual.border}`}
+      style={{ left: position.x, top: position.y }}
+      role="status"
+      aria-live="polite"
+    >
+      <div
+        className={`mb-3 flex cursor-grab touch-none select-none items-center justify-between gap-3 ${dragging ? "cursor-grabbing" : ""}`}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+      >
+        <div className="flex items-center gap-2">
+          <span className="relative flex size-3">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
+            <span className="relative inline-flex size-3 rounded-full bg-red-600 shadow-[0_0_16px_rgba(220,38,38,0.9)]" />
+          </span>
+          <span className="text-xs font-black uppercase tracking-[0.18em] text-red-600 dark:text-red-300">
+            Ao vivo
+          </span>
+        </div>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="size-7 rounded-full"
+          aria-label="Fechar placar ao vivo"
+          onClick={() => setClosedMatchId(match.id)}
+        >
+          <XIcon className="size-4" />
+        </Button>
+      </div>
+
+      <div className="space-y-3">
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+          <div className="min-w-0 space-y-1 text-left">
+            <TeamFlag team={match.home} size="sm" className="justify-start" />
+            <p className="truncate text-xs font-bold">{match.home.shortName}</p>
+          </div>
+          <div className="rounded-xl bg-slate-950 px-3 py-2 text-center text-lg font-black text-white shadow-lg shadow-red-950/20 ring-2 ring-red-400/45">
+            {match.homeScore ?? "-"} : {match.awayScore ?? "-"}
+          </div>
+          <div className="min-w-0 space-y-1 text-right">
+            <TeamFlag team={match.away} size="sm" className="justify-end" />
+            <p className="truncate text-xs font-bold">{match.away.shortName}</p>
+          </div>
+        </div>
+
+        <div className={`rounded-xl border p-3 ${visual.panel}`}>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-black">{statusTitle}</p>
+              <p className="text-xs opacity-80">{highlight?.description ?? visual.detail}</p>
+            </div>
+            <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-black ${visual.badge}`}>
+              {highlight?.badgeLabel ?? scoreStatusCopy[status]}
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="rounded-lg border border-white/60 bg-white/65 p-2 dark:border-white/10 dark:bg-slate-950/45">
+            <p className="font-medium text-muted-foreground">Seu palpite</p>
+            <p className="text-base font-black tabular-nums">
+              {hasPrediction ? `${match.predictedHome} x ${match.predictedAway}` : "--"}
+            </p>
+          </div>
+          <div className="rounded-lg border border-white/60 bg-white/65 p-2 text-right dark:border-white/10 dark:bg-slate-950/45">
+            <p className="font-medium text-muted-foreground">Pontos</p>
+            <p className="text-base font-black tabular-nums">
+              {points > 0 ? "+" : ""}
+              {points}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
