@@ -99,9 +99,6 @@ export function LandingScreen() {
               </Link>
             </Button>
           </div>
-          <p className="mt-6 text-xs font-semibold uppercase tracking-[0.18em] text-white/55">
-            BY: Josué Alisson
-          </p>
         </div>
       </section>
     </main>

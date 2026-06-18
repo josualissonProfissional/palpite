@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Barlow, Barlow_Condensed } from "next/font/google";
+import { CreatorFooter } from "@/components/palpite/creator-footer";
 import { ThemeProvider } from "@/components/palpite/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -42,6 +43,7 @@ export default function RootLayout({
         <ThemeProvider>
           <TooltipProvider>
             {children}
+            <CreatorFooter />
             <Toaster richColors position="top-right" />
           </TooltipProvider>
         </ThemeProvider>

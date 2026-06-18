@@ -145,6 +145,32 @@
     font-family: var(--font-barlow-condensed), var(--font-barlow), system-ui, sans-serif;
   }
 
+  .text-type {
+    display: inline-block;
+    white-space: pre-wrap;
+  }
+
+  .text-type__cursor {
+    display: inline-block;
+    margin-left: 0.25rem;
+    opacity: 1;
+  }
+
+  .text-type__cursor--hidden {
+    display: none;
+  }
+
+  .byline-gradient-text .text-type__content {
+    background: linear-gradient(90deg, #f97316, #ec4899, #2563eb, #14b8a6);
+    background-clip: text;
+    color: transparent !important;
+    -webkit-background-clip: text;
+  }
+
+  .byline-gradient-cursor {
+    color: #2563eb;
+  }
+
   .world-cup-grid {
     background-image:
       linear-gradient(rgba(37, 99, 235, 0.09) 1px, transparent 1px),
