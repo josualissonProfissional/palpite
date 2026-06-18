@@ -80,7 +80,7 @@ export function LandingScreen() {
             <Button
               asChild
               size="lg"
-              className="h-11 w-full bg-primary shadow-[0_0_28px_rgba(37,99,235,0.35)] transition-transform hover:-translate-y-0.5 hover:shadow-[0_0_36px_rgba(37,99,235,0.5)] sm:min-w-48"
+              className="h-11 w-full bg-primary shadow-[0_0_28px_rgba(37,99,235,0.35)] transition-transform hover:-translate-y-0.5 hover:shadow-[0_0_36px_rgba(37,99,235,0.5)] sm:h-9 sm:w-auto sm:min-w-44 sm:px-4 sm:text-sm"
             >
               <Link href="/criar-conta">
                 <UsersRoundIcon className="size-4" />
@@ -91,7 +91,7 @@ export function LandingScreen() {
               asChild
               size="lg"
               variant="secondary"
-              className="h-11 w-full border border-white/50 bg-white/62 shadow-sm backdrop-blur-xl transition-transform hover:-translate-y-0.5 dark:border-white/10 dark:bg-slate-950/62 sm:min-w-48"
+              className="h-11 w-full border border-white/50 bg-white/62 shadow-sm backdrop-blur-xl transition-transform hover:-translate-y-0.5 dark:border-white/10 dark:bg-slate-950/62 sm:h-9 sm:w-auto sm:min-w-36 sm:px-4 sm:text-sm"
             >
               <Link href="/entrar">
                 <LogInIcon className="size-4" />
