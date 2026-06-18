@@ -1,6 +1,23 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
+function isProtectedPath(pathname: string) {
+  return pathname === "/app" || pathname.startsWith("/app/");
+}
+
+function redirectToLanding(request: NextRequest, responseWithCookies: NextResponse) {
+  const redirectUrl = request.nextUrl.clone();
+  redirectUrl.pathname = "/";
+  redirectUrl.search = "";
+
+  const redirectResponse = NextResponse.redirect(redirectUrl);
+  responseWithCookies.cookies.getAll().forEach((cookie) => {
+    redirectResponse.cookies.set(cookie);
+  });
+
+  return redirectResponse;
+}
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
@@ -32,7 +49,17 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  await supabase.auth.getClaims();
+  if (isProtectedPath(request.nextUrl.pathname)) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return redirectToLanding(request, supabaseResponse);
+    }
+  } else {
+    await supabase.auth.getClaims();
+  }
 
   return supabaseResponse;
 }
