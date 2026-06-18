@@ -13,6 +13,7 @@ import {
   RadioIcon,
   SparklesIcon,
   TrophyIcon,
+  type LucideIcon,
   UsersIcon,
   XCircleIcon,
 } from "lucide-react";
@@ -72,6 +73,58 @@ function scoreOutcome(home: number, away: number) {
   if (home > away) return "home";
   if (away > home) return "away";
   return "draw";
+}
+
+type PredictionHighlight = {
+  isExactScore: boolean;
+  isOutcomeHit: boolean;
+  isDrawHit: boolean;
+  Icon: LucideIcon;
+  title: string | null;
+  description: string | null;
+  badgeLabel: string;
+};
+
+function getPredictionHighlight(match: Match): PredictionHighlight {
+  const scoreStatus = match.scoreStatus ?? "pending";
+  const hasResult =
+    typeof match.homeScore === "number" &&
+    typeof match.awayScore === "number" &&
+    typeof match.predictedHome === "number" &&
+    typeof match.predictedAway === "number";
+  const resultOutcome = hasResult ? scoreOutcome(match.homeScore as number, match.awayScore as number) : null;
+  const predictedOutcome = hasResult ? scoreOutcome(match.predictedHome as number, match.predictedAway as number) : null;
+  const isExactScore = scoreStatus === "correct";
+  const isOutcomeHit = scoreStatus === "partial" && resultOutcome === predictedOutcome;
+  const isDrawHit = isOutcomeHit && resultOutcome === "draw";
+
+  return {
+    isExactScore,
+    isOutcomeHit,
+    isDrawHit,
+    Icon: isExactScore ? SparklesIcon : isDrawHit ? HandshakeIcon : CircleCheckIcon,
+    title: isExactScore
+      ? "Placar exato!"
+      : isDrawHit
+        ? "Empate acertado!"
+        : isOutcomeHit
+          ? "Vencedor acertado!"
+          : null,
+    description: isExactScore
+      ? "Você cravou o placar do jogo."
+      : isDrawHit
+        ? "Você acertou que o jogo terminaria empatado."
+        : isOutcomeHit
+          ? "Você acertou quem venceu a partida."
+          : null,
+    badgeLabel: isExactScore
+      ? "Placar exato"
+      : isDrawHit
+        ? "Empate"
+        : isOutcomeHit
+          ? "Vitória"
+          : scoreStatusCopy[scoreStatus],
+  };
 }
 
 function MatchGrid({
@@ -353,46 +406,15 @@ function MyPredictionsPanel({ matches, groupName }: { matches: Match[]; groupNam
 
 function PredictionSummaryCard({ match }: { match: Match }) {
   const points = match.points ?? 0;
-  const scoreStatus = match.scoreStatus ?? "pending";
-  const hasResult =
-    typeof match.homeScore === "number" &&
-    typeof match.awayScore === "number" &&
-    typeof match.predictedHome === "number" &&
-    typeof match.predictedAway === "number";
-  const resultOutcome = hasResult ? scoreOutcome(match.homeScore as number, match.awayScore as number) : null;
-  const predictedOutcome = hasResult ? scoreOutcome(match.predictedHome as number, match.predictedAway as number) : null;
-  const isExactScore = scoreStatus === "correct";
-  const isOutcomeHit = scoreStatus === "partial" && resultOutcome === predictedOutcome;
-  const isDrawHit = isOutcomeHit && resultOutcome === "draw";
-  const HighlightIcon = isExactScore ? SparklesIcon : isDrawHit ? HandshakeIcon : CircleCheckIcon;
-  const highlightTitle = isExactScore
-    ? "Placar exato!"
-    : isDrawHit
-      ? "Empate acertado!"
-      : isOutcomeHit
-        ? "Vencedor acertado!"
-        : null;
-  const highlightDescription = isExactScore
-    ? "Você cravou o placar do jogo."
-    : isDrawHit
-      ? "Você acertou que o jogo terminaria empatado."
-      : isOutcomeHit
-        ? "Você acertou quem venceu a partida."
-        : null;
-  const badgeLabel = isExactScore
-    ? "Placar exato"
-    : isDrawHit
-      ? "Empate"
-      : isOutcomeHit
-        ? "Vitória"
-        : scoreStatusCopy[scoreStatus];
+  const highlight = getPredictionHighlight(match);
+  const HighlightIcon = highlight.Icon;
 
   return (
     <Card
       className={`${
-        isExactScore
+        highlight.isExactScore
           ? "palpite-exact-prediction-card border-transparent bg-amber-50/90 shadow-lg ring-0 dark:bg-amber-950/25"
-          : isOutcomeHit
+          : highlight.isOutcomeHit
             ? "border-emerald-300/80 bg-emerald-50/90 shadow-md shadow-emerald-950/10 ring-1 ring-emerald-300/50 dark:border-emerald-400/30 dark:bg-emerald-950/25 dark:ring-emerald-400/25"
             : "border-white/70 bg-white/86 shadow-sm dark:border-white/10 dark:bg-slate-950/70"
       }`}
@@ -405,31 +427,31 @@ function PredictionSummaryCard({ match }: { match: Match }) {
           <p className="text-xs text-muted-foreground">{match.date}</p>
         </div>
         <Badge
-          variant={isExactScore || isOutcomeHit ? "default" : "secondary"}
+          variant={highlight.isExactScore || highlight.isOutcomeHit ? "default" : "secondary"}
           className={
-            isExactScore
+            highlight.isExactScore
               ? "bg-amber-500 text-white shadow-sm shadow-amber-500/30"
-              : isOutcomeHit
+              : highlight.isOutcomeHit
                 ? "bg-emerald-600 text-white shadow-sm shadow-emerald-600/25"
                 : undefined
           }
         >
-          {badgeLabel}
+          {highlight.badgeLabel}
         </Badge>
       </CardHeader>
       <CardContent className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
         <div className="grid gap-2">
-          {highlightTitle ? (
+          {highlight.title ? (
             <div
               className={`flex items-start gap-2 rounded-lg border p-3 ${
-                isExactScore
+                highlight.isExactScore
                   ? "border-amber-300/80 bg-amber-100/80 text-amber-950 dark:border-amber-300/30 dark:bg-amber-400/10 dark:text-amber-100"
                   : "border-emerald-300/80 bg-emerald-100/80 text-emerald-950 dark:border-emerald-300/30 dark:bg-emerald-400/10 dark:text-emerald-100"
               }`}
             >
               <div
                 className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full ${
-                  isExactScore
+                  highlight.isExactScore
                     ? "bg-amber-500 text-white shadow-sm shadow-amber-500/40"
                     : "bg-emerald-600 text-white shadow-sm shadow-emerald-600/30"
                 }`}
@@ -437,8 +459,8 @@ function PredictionSummaryCard({ match }: { match: Match }) {
                 <HighlightIcon className="size-4" />
               </div>
               <div>
-                <p className="text-sm font-bold">{highlightTitle}</p>
-                <p className="text-xs opacity-80">{highlightDescription}</p>
+                <p className="text-sm font-bold">{highlight.title}</p>
+                <p className="text-xs opacity-80">{highlight.description}</p>
               </div>
             </div>
           ) : null}
@@ -462,9 +484,9 @@ function PredictionSummaryCard({ match }: { match: Match }) {
         </div>
         <div
           className={`rounded-lg px-3 py-2 text-center text-sm font-semibold text-white ${
-            isExactScore
+            highlight.isExactScore
               ? "bg-amber-500 shadow-md shadow-amber-500/30"
-              : isOutcomeHit
+              : highlight.isOutcomeHit
                 ? "bg-emerald-600 shadow-md shadow-emerald-600/25"
                 : "bg-slate-950"
           }`}
@@ -485,15 +507,55 @@ function MatchCard({ match, groupId }: { match: Match; groupId?: string }) {
     away: match.predictedAway ?? 0,
   });
   const isLive = match.status === "live";
+  const highlight = getPredictionHighlight(match);
+  const HighlightIcon = highlight.Icon;
 
   return (
     <MagicCard
-      className="h-full transition duration-200 hover:-translate-y-0.5 hover:shadow-lg"
-      gradientColor={isLive ? "rgba(239, 68, 68, 0.14)" : "rgba(37, 99, 235, 0.12)"}
-      gradientFrom={isLive ? "rgba(239, 68, 68, 0.78)" : "rgba(37, 99, 235, 0.78)"}
-      gradientTo={isLive ? "rgba(251, 146, 60, 0.52)" : "rgba(14, 165, 233, 0.52)"}
+      className={`h-full transition duration-200 hover:-translate-y-0.5 hover:shadow-lg ${
+        highlight.isExactScore
+          ? "palpite-exact-prediction-card"
+          : highlight.isOutcomeHit
+            ? "ring-1 ring-emerald-300/70 shadow-md shadow-emerald-950/10 dark:ring-emerald-400/30"
+            : ""
+      }`}
+      gradientColor={
+        highlight.isExactScore
+          ? "rgba(245, 158, 11, 0.16)"
+          : highlight.isOutcomeHit
+            ? "rgba(16, 185, 129, 0.14)"
+            : isLive
+              ? "rgba(239, 68, 68, 0.14)"
+              : "rgba(37, 99, 235, 0.12)"
+      }
+      gradientFrom={
+        highlight.isExactScore
+          ? "rgba(245, 158, 11, 0.86)"
+          : highlight.isOutcomeHit
+            ? "rgba(16, 185, 129, 0.82)"
+            : isLive
+              ? "rgba(239, 68, 68, 0.78)"
+              : "rgba(37, 99, 235, 0.78)"
+      }
+      gradientTo={
+        highlight.isExactScore
+          ? "rgba(168, 85, 247, 0.58)"
+          : highlight.isOutcomeHit
+            ? "rgba(34, 197, 94, 0.56)"
+            : isLive
+              ? "rgba(251, 146, 60, 0.52)"
+              : "rgba(14, 165, 233, 0.52)"
+      }
     >
-      <Card className="h-full border-0 bg-white/86 shadow-sm ring-0 backdrop-blur dark:bg-slate-950/70">
+      <Card
+        className={`h-full border-0 shadow-sm ring-0 backdrop-blur ${
+          highlight.isExactScore
+            ? "bg-amber-50/90 dark:bg-amber-950/25"
+            : highlight.isOutcomeHit
+              ? "bg-emerald-50/90 dark:bg-emerald-950/25"
+              : "bg-white/86 dark:bg-slate-950/70"
+        }`}
+      >
         <CardHeader className="flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -516,6 +578,29 @@ function MatchCard({ match, groupId }: { match: Match; groupId?: string }) {
           </Badge>
         </CardHeader>
         <CardContent className="space-y-5">
+          {highlight.title ? (
+            <div
+              className={`flex items-start gap-2 rounded-lg border p-3 ${
+                highlight.isExactScore
+                  ? "border-amber-300/80 bg-amber-100/80 text-amber-950 dark:border-amber-300/30 dark:bg-amber-400/10 dark:text-amber-100"
+                  : "border-emerald-300/80 bg-emerald-100/80 text-emerald-950 dark:border-emerald-300/30 dark:bg-emerald-400/10 dark:text-emerald-100"
+              }`}
+            >
+              <div
+                className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full ${
+                  highlight.isExactScore
+                    ? "bg-amber-500 text-white shadow-sm shadow-amber-500/40"
+                    : "bg-emerald-600 text-white shadow-sm shadow-emerald-600/30"
+                }`}
+              >
+                <HighlightIcon className="size-4" />
+              </div>
+              <div>
+                <p className="text-sm font-bold">{highlight.title}</p>
+                <p className="text-xs opacity-80">{highlight.description}</p>
+              </div>
+            </div>
+          ) : null}
           <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-3">
             <TeamFlag team={match.home} showName className="justify-start" />
             <div

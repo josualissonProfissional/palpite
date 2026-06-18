@@ -2,6 +2,7 @@ import { ChartNoAxesColumnIncreasingIcon, RefreshCcwIcon } from "lucide-react";
 import { AppShell } from "@/components/palpite/app-shell";
 import { EmptyState } from "@/components/palpite/empty-state";
 import { RankingTable } from "@/components/palpite/ranking-table";
+import { ResetRankingButton } from "@/components/palpite/reset-ranking-button";
 import { ScreenHeader } from "@/components/palpite/screen-header";
 import { ShareGroupSummary } from "@/components/palpite/share-group-summary";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ export default async function RankingPage({
   ]);
   const ranking = await getRanking(groupData.group?.id);
   const groupName = groupData.group?.name ?? "Grupo";
+  const canResetRanking = groupData.group?.role === "owner" || groupData.group?.role === "admin";
 
   return (
     <AppShell groupName={groupName} groupSlug={groupSlug} teams={worldCup.teams}>
@@ -35,6 +37,7 @@ export default async function RankingPage({
         action={
           <div className="flex flex-wrap gap-2">
             <ShareGroupSummary groupId={groupData.group?.id} groupName={groupName} ranking={ranking} />
+            {canResetRanking ? <ResetRankingButton groupId={groupData.group?.id} /> : null}
             <Button variant="secondary"><RefreshCcwIcon className="size-4" /> Atualizar</Button>
           </div>
         }
