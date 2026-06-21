@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Match } from "@/lib/palpite-data";
 
@@ -33,6 +33,13 @@ type PredictionScoreRow = {
   is_final: boolean;
 };
 
+export type LiveGoalEvent = {
+  matchId: string;
+  side: "home" | "away";
+  homeScore: number;
+  awayScore: number;
+};
+
 function toUiStatus(status: string): Match["status"] {
   if (status === "finished") return "finished";
   if (status === "live" || status === "halftime") return "live";
@@ -43,13 +50,30 @@ function toUiStatus(status: string): Match["status"] {
  * Assina o canal Realtime (websocket) do Supabase e devolve a lista de jogos
  * com os placares e status atualizados ao vivo, sem precisar recarregar a pagina.
  */
-export function useLiveMatches(initial: Match[], groupId?: string): {
+export function useLiveMatches(
+  initial: Match[],
+  groupId?: string,
+  onGoal?: (event: LiveGoalEvent) => void,
+): {
   matches: Match[];
   connected: boolean;
 } {
   const [overrides, setOverrides] = useState<Record<string, LiveOverride>>({});
   const [scoreOverrides, setScoreOverrides] = useState<Record<string, ScoreOverride>>({});
   const [connected, setConnected] = useState(false);
+  const lastScoresRef = useRef<Record<string, { homeScore: number | null; awayScore: number | null }>>({});
+
+  useEffect(() => {
+    lastScoresRef.current = Object.fromEntries(
+      initial.map((match) => [
+        match.id,
+        {
+          homeScore: typeof match.homeScore === "number" ? match.homeScore : null,
+          awayScore: typeof match.awayScore === "number" ? match.awayScore : null,
+        },
+      ]),
+    );
+  }, [initial]);
 
   useEffect(() => {
     let mounted = true;
@@ -62,6 +86,34 @@ export function useLiveMatches(initial: Match[], groupId?: string): {
         (payload) => {
           const row = payload.new as MatchRow;
           if (!row?.id) return;
+          const nextScore = {
+            homeScore: row.home_score,
+            awayScore: row.away_score,
+          };
+          const previousScore = lastScoresRef.current[row.id];
+
+          if (
+            onGoal &&
+            previousScore &&
+            typeof nextScore.homeScore === "number" &&
+            typeof nextScore.awayScore === "number"
+          ) {
+            const previousHome = previousScore.homeScore ?? 0;
+            const previousAway = previousScore.awayScore ?? 0;
+            const homeDelta = nextScore.homeScore - previousHome;
+            const awayDelta = nextScore.awayScore - previousAway;
+
+            if (homeDelta > 0 || awayDelta > 0) {
+              onGoal({
+                matchId: row.id,
+                side: homeDelta >= awayDelta ? "home" : "away",
+                homeScore: nextScore.homeScore,
+                awayScore: nextScore.awayScore,
+              });
+            }
+          }
+
+          lastScoresRef.current[row.id] = nextScore;
           setOverrides((prev) => ({
             ...prev,
             [row.id]: {
@@ -130,7 +182,7 @@ export function useLiveMatches(initial: Match[], groupId?: string): {
       supabase.removeChannel(channel);
       if (scoreChannel) void supabase.removeChannel(scoreChannel);
     };
-  }, [groupId]);
+  }, [groupId, onGoal]);
 
   const matches = initial.map((match) => {
     const override = overrides[match.id];

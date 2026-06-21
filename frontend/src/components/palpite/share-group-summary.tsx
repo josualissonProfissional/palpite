@@ -17,9 +17,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { createClient } from "@/lib/supabase/client";
 import { getBaseUrl } from "@/lib/base-url";
 import { initials, type RankingRow } from "@/lib/palpite-data";
+import {
+  drawFlagBadge,
+  drawTrophyWatermark,
+  flagImageUrl,
+  loadCanvasImage,
+  withFlag,
+} from "@/lib/share-visuals";
+import { scoreStatusShortLabel, type ScoreStatus } from "@/lib/score-status-copy";
 
 type ShareMode = "ranking" | "board" | "both";
-type ScoreStatus = "pending" | "correct" | "partial" | "wrong" | "inverse_penalty";
 
 type RankingRpcRow = {
   position: number;
@@ -27,6 +34,7 @@ type RankingRpcRow = {
   display_name: string;
   avatar_url: string | null;
   total_points: number;
+  best_players_points: number;
   exact_scores: number;
   partial_hits: number;
   penalties: number;
@@ -39,6 +47,8 @@ type LiveBoardShareRow = {
   status: string;
   home_label: string;
   away_label: string;
+  home_logo: string | null;
+  away_logo: string | null;
   home_score: number | null;
   away_score: number | null;
   user_id: string | null;
@@ -51,6 +61,10 @@ type LiveBoardShareRow = {
 
 type MatchBoard = {
   matchId: string;
+  homeLabel: string;
+  awayLabel: string;
+  homeLogo: string | null;
+  awayLogo: string | null;
   title: string;
   score: string;
   status: string;
@@ -70,14 +84,6 @@ const modeLabels: Record<ShareMode, string> = {
   both: "Tudo",
 };
 
-const statusLabel: Record<ScoreStatus, string> = {
-  correct: "exato",
-  partial: "parcial",
-  wrong: "errou",
-  inverse_penalty: "invertido",
-  pending: "aguardando",
-};
-
 function mapRanking(rows: RankingRpcRow[]): RankingRow[] {
   return rows.map((row) => ({
     position: row.position,
@@ -86,6 +92,7 @@ function mapRanking(rows: RankingRpcRow[]): RankingRow[] {
     avatarFallback: initials(row.display_name) || "P",
     avatarUrl: row.avatar_url ?? undefined,
     points: row.total_points,
+    bestPlayersPoints: row.best_players_points ?? 0,
     exactScores: row.exact_scores,
     partialHits: row.partial_hits,
     penalties: row.penalties,
@@ -102,6 +109,10 @@ function groupBoard(rows: LiveBoardShareRow[]): MatchBoard[] {
       current ??
       {
         matchId: row.match_id,
+        homeLabel: row.home_label,
+        awayLabel: row.away_label,
+        homeLogo: row.home_logo,
+        awayLogo: row.away_logo,
         title: `${row.home_label} x ${row.away_label}`,
         score:
           row.home_score === null || row.away_score === null
@@ -142,13 +153,15 @@ function buildText(mode: ShareMode, groupName: string, ranking: RankingRow[], bo
       lines.push("Nenhum palpite disponivel para compartilhar agora.");
     } else {
       board.slice(0, 4).forEach((match) => {
-        lines.push(`${match.title} | ${match.score} (${match.status})`);
+        lines.push(
+          `${withFlag(match.homeLabel)} x ${withFlag(match.awayLabel)} | ${match.score} (${match.status})`,
+        );
         if (match.participants.length === 0) {
           lines.push("- Sem palpites neste jogo.");
         } else {
           match.participants.slice(0, 8).forEach((row) => {
             const name = row.display_name ?? "Participante";
-            const status = row.score_status ? `, ${statusLabel[row.score_status]}` : "";
+            const status = row.score_status ? `, ${scoreStatusShortLabel(row.score_status, row.status)}` : "";
             lines.push(`- ${name}: ${row.predicted_home ?? "?"} x ${row.predicted_away ?? "?"} (${row.points} pts${status})`);
           });
         }
@@ -161,16 +174,6 @@ function buildText(mode: ShareMode, groupName: string, ranking: RankingRow[], bo
   return lines.join("\n").trim();
 }
 
-function loadImage(src: string): Promise<HTMLImageElement | null> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = src;
-  });
-}
-
 function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) {
   if (ctx.measureText(text).width <= maxWidth) return text;
   let value = text;
@@ -178,6 +181,15 @@ function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) 
     value = value.slice(0, -1);
   }
   return `${value}...`;
+}
+
+async function loadTeamFlag(label: string, logo: string | null) {
+  const flagUrl = flagImageUrl(label, 160);
+  if (flagUrl) {
+    const flag = await loadCanvasImage(flagUrl);
+    if (flag) return flag;
+  }
+  return logo ? loadCanvasImage(logo) : null;
 }
 
 async function drawShareImage(mode: ShareMode, groupName: string, ranking: RankingRow[], board: MatchBoard[]) {
@@ -195,8 +207,9 @@ async function drawShareImage(mode: ShareMode, groupName: string, ranking: Ranki
   bg.addColorStop(1, "#020617");
   context.fillStyle = bg;
   context.fillRect(0, 0, W, H);
+  await drawTrophyWatermark(context, W, H);
 
-  const logo = await loadImage("/logo/logo-apenas-desenho-sem-fundo.svg");
+  const logo = await loadCanvasImage("/logo/logo-apenas-desenho-sem-fundo.svg");
   if (logo) context.drawImage(logo, 64, 58, 112, 112);
 
   context.fillStyle = "#ffffff";
@@ -256,18 +269,35 @@ async function drawShareImage(mode: ShareMode, groupName: string, ranking: Ranki
     if (shownBoard.length === 0) {
       row("Nenhum palpite disponivel agora");
     } else {
-      shownBoard.forEach((match) => {
+      for (const match of shownBoard) {
+        const homeFlag = await loadTeamFlag(match.homeLabel, match.homeLogo);
+        const awayFlag = await loadTeamFlag(match.awayLabel, match.awayLogo);
+
         context.textAlign = "left";
         context.fillStyle = "#bfdbfe";
         context.font = "800 30px Arial, sans-serif";
-        context.fillText(fitText(context, `${match.title} | ${match.score}`, 900), 84, y);
+        drawFlagBadge(context, homeFlag, match.homeLabel, 84, y - 34, 54, 36);
+        context.fillText(fitText(context, match.homeLabel, 250), 154, y - 7);
+        context.textAlign = "center";
+        context.fillStyle = "#facc15";
+        context.font = "900 28px Arial, sans-serif";
+        context.fillText("x", W / 2, y - 7);
+        drawFlagBadge(context, awayFlag, match.awayLabel, W - 138, y - 34, 54, 36);
+        context.textAlign = "right";
+        context.fillStyle = "#bfdbfe";
+        context.font = "800 30px Arial, sans-serif";
+        context.fillText(fitText(context, match.awayLabel, 250), W - 154, y - 7);
+        context.textAlign = "center";
+        context.fillStyle = "#93c5fd";
+        context.font = "600 24px Arial, sans-serif";
+        context.fillText(fitText(context, match.score, 700), W / 2, y + 28);
         y += 48;
         match.participants.slice(0, mode === "both" ? 4 : 6).forEach((p) => {
           const name = p.display_name ?? "Participante";
           row(`${name}: ${p.predicted_home ?? "?"} x ${p.predicted_away ?? "?"}`, `${p.points} pts`);
         });
         y += 12;
-      });
+      }
     }
   }
 

@@ -10,6 +10,8 @@ import {
   LogOutIcon,
   PlusIcon,
   SettingsIcon,
+  ShirtIcon,
+  ShieldCheckIcon,
   TrophyIcon,
   UserIcon,
   UsersIcon,
@@ -39,6 +41,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
+import { isAdminEmail } from "@/lib/admin";
 import { createClient } from "@/lib/supabase/client";
 
 type GroupLink = { id: string; name: string; slug: string };
@@ -53,6 +56,7 @@ export function AppSidebarNav({
   const pathname = usePathname() ?? "";
   const router = useRouter();
   const [groups, setGroups] = useState<GroupLink[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -62,6 +66,7 @@ export function AppSidebarNav({
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
+      setIsAdmin(isAdminEmail(user.email));
       const { data } = await supabase
         .schema("palpite")
         .from("group_members")
@@ -90,6 +95,7 @@ export function AppSidebarNav({
     ? [
         { label: "Resumo e jogos", href: groupBase, icon: TrophyIcon },
         { label: "Ranking", href: `${groupBase}/ranking`, icon: ChartNoAxesColumnIncreasingIcon },
+        { label: "Times", href: `${groupBase}/times`, icon: ShirtIcon },
         { label: "Membros", href: `${groupBase}/membros`, icon: UsersIcon },
         { label: "Regras", href: `${groupBase}/regras`, icon: SettingsIcon },
       ]
@@ -206,6 +212,16 @@ export function AppSidebarNav({
         <SidebarGroupLabel>Conta</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
+            {isAdmin ? (
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild tooltip="Admin" isActive={pathname.startsWith("/app/admin")}>
+                  <Link href="/app/admin">
+                    <ShieldCheckIcon className="size-4" />
+                    <span>Admin</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ) : null}
             <SidebarMenuItem>
               <SidebarMenuButton asChild tooltip="Perfil" isActive={pathname.startsWith("/app/perfil")}>
                 <Link href="/app/perfil">

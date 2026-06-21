@@ -35,6 +35,7 @@ export function RankingTable({ ranking }: { ranking: RankingRow[] }) {
             <TableHead className="hidden text-center sm:table-cell">Exatos</TableHead>
             <TableHead className="hidden text-center sm:table-cell">Parciais</TableHead>
             <TableHead className="hidden text-center sm:table-cell">Pen.</TableHead>
+            <TableHead className="hidden text-center md:table-cell">Bônus</TableHead>
             <TableHead className="text-right">Pts</TableHead>
           </TableRow>
         </TableHeader>
@@ -59,7 +60,7 @@ export function RankingTable({ ranking }: { ranking: RankingRow[] }) {
                       <span className="truncate">{row.name}</span>
                     </div>
                     <div className="text-[11px] text-muted-foreground sm:hidden">
-                      {row.exactScores} exatos · {row.partialHits} parc. · {row.penalties} pen.
+                      {row.exactScores} exatos · {row.partialHits} parc. · {row.bestPlayersPoints} bônus
                     </div>
                   </div>
                 </div>
@@ -70,6 +71,9 @@ export function RankingTable({ ranking }: { ranking: RankingRow[] }) {
                 <Badge variant={row.penalties > 0 ? "destructive" : "secondary"}>
                   {row.penalties}
                 </Badge>
+              </TableCell>
+              <TableCell className="hidden text-center font-semibold text-amber-600 md:table-cell">
+                {row.bestPlayersPoints}
               </TableCell>
               <TableCell className="text-right text-base font-bold sm:text-lg">
                 {row.points}

@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { AnimatedWorldCupBackground } from "@/components/palpite/animated-world-cup-background";
 import { AppSidebarNav } from "@/components/palpite/app-sidebar-nav";
+import { BestPlayersUpdateDialog } from "@/components/palpite/best-players-update-dialog";
 import { ThemeToggle } from "@/components/palpite/theme-toggle";
 import {
   Sidebar,
@@ -27,7 +28,8 @@ export function AppShell({
 }) {
   return (
     <SidebarProvider>
-      <div className="relative min-h-svh w-full overflow-x-hidden bg-background">
+      <BestPlayersUpdateDialog groupSlug={groupSlug} />
+      <div className="relative flex min-h-svh w-full overflow-x-hidden bg-background">
         <AnimatedWorldCupBackground teams={teams} />
         <Sidebar variant="floating" collapsible="icon" className="border-white/70 dark:border-white/10">
           <SidebarHeader className="p-3">
@@ -58,7 +60,7 @@ export function AppShell({
             </div>
           </SidebarFooter>
         </Sidebar>
-        <SidebarInset className="relative bg-transparent">
+        <SidebarInset className="relative min-w-0 bg-transparent">
           <div className="sticky top-0 z-30 flex items-center justify-between border-b border-white/50 bg-background/80 px-3 py-2 backdrop-blur md:hidden dark:border-white/10">
             <SidebarTrigger aria-label="Abrir menu" />
             <Link href="/app" className="flex items-center gap-1.5 font-heading text-lg font-bold">

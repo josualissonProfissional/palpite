@@ -12,6 +12,7 @@ import { MatchList } from "@/components/palpite/match-card";
 import { RankingTable } from "@/components/palpite/ranking-table";
 import { ShareGroupSummary } from "@/components/palpite/share-group-summary";
 import { LiveStandings } from "@/components/palpite/live-standings";
+import { WeeklyTopThree } from "@/components/palpite/live-ranking";
 import { TeamFlag } from "@/components/palpite/team-flag";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,6 +28,8 @@ type DashboardScreenProps = {
   ranking: RankingRow[];
   teams: Team[];
   group?: GroupSummary | null;
+  currentUserPosition?: number;
+  lockPredictionMinutesBefore?: number;
   configured: boolean;
 };
 
@@ -36,17 +39,20 @@ export function DashboardScreen({
   ranking,
   teams,
   group,
+  currentUserPosition,
+  lockPredictionMinutesBefore = 10,
   configured,
 }: DashboardScreenProps) {
   const groupName = group?.name ?? "Grupo";
   const liveMatches = matches.filter((match) => match.status === "live").length;
   const scheduledMatches = matches.filter((match) => match.status === "scheduled").length;
-  const userRanking = ranking[0]?.position ? `${ranking[0].position}o` : "-";
+  const userRanking = currentUserPosition ? `${currentUserPosition}o` : "-";
   const progress = matches.length > 0 ? Math.round((matches.filter((match) => match.status === "finished").length / matches.length) * 100) : 0;
 
   return (
     <AppShell groupName={groupName} groupSlug={group?.slug} teams={teams}>
       <NeonGradientCard
+        autoSize
         borderSize={2}
         borderRadius={14}
         neonColors={{ firstColor: "#2563eb", secondColor: "#00fff1" }}
@@ -82,6 +88,8 @@ export function DashboardScreen({
         <MetricCard icon={UsersIcon} label="Ranking" value={String(ranking.length)} detail="participantes" />
       </section>
 
+      <WeeklyTopThree groupId={group?.id} />
+
       <Tabs defaultValue="jogos" className="space-y-4">
         <TabsList className="grid h-auto w-full grid-cols-3 bg-white/80 md:w-fit dark:bg-slate-950/70">
           <TabsTrigger value="jogos">Jogos</TabsTrigger>
@@ -89,7 +97,12 @@ export function DashboardScreen({
           <TabsTrigger value="copa">Copa</TabsTrigger>
         </TabsList>
         <TabsContent value="jogos" className="space-y-4">
-          <MatchList matches={matches} groupId={group?.id} groupName={groupName} />
+          <MatchList
+            matches={matches}
+            groupId={group?.id}
+            groupName={groupName}
+            lockPredictionMinutesBefore={lockPredictionMinutesBefore}
+          />
         </TabsContent>
         <TabsContent value="ranking" className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">

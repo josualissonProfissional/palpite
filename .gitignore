@@ -9,6 +9,13 @@ dist/
 .claude/settings.local.json
 .agents/
 
+# Referências visuais locais usadas durante o desenvolvimento
+images/Captura de tela*
+images/Card.png
+images/card.png
+images/fifa-23-*
+images/fix/
+
 # Supabase local state
 supabase/.branches/
 supabase/.temp/

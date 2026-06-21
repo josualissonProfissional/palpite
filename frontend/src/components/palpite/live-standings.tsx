@@ -10,7 +10,7 @@ export function LiveStandings({ initialStandings }: { initialStandings: Standing
   const { standings, connected } = useLiveStandings(initialStandings);
 
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 space-y-3">
       <div className="flex justify-end">
         <Badge
           variant={connected ? "default" : "secondary"}

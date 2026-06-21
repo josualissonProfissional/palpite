@@ -2,8 +2,17 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { EyeIcon, EyeOffIcon, KeyRoundIcon, MailIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
+import {
+  CircleAlertIcon,
+  CircleCheckIcon,
+  EyeIcon,
+  EyeOffIcon,
+  KeyRoundIcon,
+  MailIcon,
+} from "lucide-react";
 import { toast } from "sonner";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,6 +31,11 @@ function canUseSupabase() {
 
 export function PasswordRecoveryForm() {
   const [loading, setLoading] = useState(false);
+  const [feedback, setFeedback] = useState<{
+    type: "error" | "success";
+    title: string;
+    description: string;
+  } | null>(null);
 
   async function handleSubmit(formData: FormData) {
     if (!canUseSupabase()) {
@@ -32,6 +46,7 @@ export function PasswordRecoveryForm() {
     const email = String(formData.get("email") ?? "").trim();
     if (!email) return;
 
+    setFeedback(null);
     setLoading(true);
     const { error } = await createClient().auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/auth/callback`,
@@ -39,10 +54,28 @@ export function PasswordRecoveryForm() {
     setLoading(false);
 
     if (error) {
-      toast.error(error.message);
+      const isRateLimit =
+        error.status === 429 ||
+        error.code === "over_email_send_rate_limit" ||
+        /rate limit|too many requests/i.test(error.message);
+      const message = isRateLimit
+        ? "O serviço de e-mail atingiu o limite temporário de envios. Aguarde alguns minutos e tente novamente; a liberação pode levar até 1 hora."
+        : "Não foi possível enviar o link agora. Tente novamente em alguns instantes.";
+
+      setFeedback({
+        type: "error",
+        title: isRateLimit ? "Muitos pedidos de recuperação" : "Não foi possível enviar",
+        description: message,
+      });
+      toast.error(message);
       return;
     }
 
+    setFeedback({
+      type: "success",
+      title: "Confira seu e-mail",
+      description: "Se a conta estiver cadastrada, você receberá um link para criar uma nova senha.",
+    });
     toast.success("Enviamos um link para redefinir sua senha.");
   }
 
@@ -58,6 +91,17 @@ export function PasswordRecoveryForm() {
         {!loading && <MailIcon className="size-4" />}
         {loading ? "Enviando..." : "Enviar link"}
       </Button>
+      {feedback ? (
+        <Alert variant={feedback.type === "error" ? "destructive" : "default"}>
+          {feedback.type === "error" ? (
+            <CircleAlertIcon className="size-4" />
+          ) : (
+            <CircleCheckIcon className="size-4 text-emerald-600 dark:text-emerald-400" />
+          )}
+          <AlertTitle>{feedback.title}</AlertTitle>
+          <AlertDescription>{feedback.description}</AlertDescription>
+        </Alert>
+      ) : null}
       <div className="text-center">
         <Button asChild variant="link" className="h-auto p-0 text-sm">
           <Link href="/entrar">Voltar para entrar</Link>
@@ -68,6 +112,7 @@ export function PasswordRecoveryForm() {
 }
 
 export function UpdatePasswordForm() {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -79,16 +124,21 @@ export function UpdatePasswordForm() {
 
     const password = String(formData.get("password") ?? "");
 
+    const supabase = createClient();
     setLoading(true);
-    const { error } = await createClient().auth.updateUser({ password });
-    setLoading(false);
+    const { error } = await supabase.auth.updateUser({ password });
 
     if (error) {
+      setLoading(false);
       toast.error(error.message);
       return;
     }
 
+    await supabase.auth.signOut({ scope: "local" });
+    setLoading(false);
     toast.success("Senha atualizada. Voce ja pode entrar.");
+    router.replace("/entrar");
+    router.refresh();
   }
 
   return (

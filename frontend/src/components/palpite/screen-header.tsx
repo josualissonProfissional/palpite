@@ -19,6 +19,7 @@ export function ScreenHeader({
 }: ScreenHeaderProps) {
   return (
     <NeonGradientCard
+      autoSize
       borderSize={2}
       borderRadius={14}
       neonColors={{ firstColor: "#2563eb", secondColor: "#f97316" }}

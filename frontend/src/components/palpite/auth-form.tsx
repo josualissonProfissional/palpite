@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { EyeIcon, EyeOffIcon, MailIcon, ShieldCheckIcon } from "lucide-react";
+import { EyeIcon, EyeOffIcon, KeyRoundIcon, MailIcon, ShieldCheckIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -142,11 +142,12 @@ export function AuthForm({ mode }: AuthFormProps) {
         {loading ? "Aguarde..." : isSignup ? "Criar e entrar" : "Entrar no bolao"}
       </Button>
       {!isSignup ? (
-        <div className="text-right">
-          <Button asChild variant="link" className="h-auto p-0 text-sm">
-            <Link href="/recuperar-senha">Esqueci minha senha</Link>
-          </Button>
-        </div>
+        <Button asChild variant="outline" className="w-full">
+          <Link href="/recuperar-senha">
+            <KeyRoundIcon className="size-4" />
+            Esqueci a senha
+          </Link>
+        </Button>
       ) : null}
     </form>
   );

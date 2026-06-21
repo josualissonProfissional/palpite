@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckIcon, CopyIcon, RadioIcon, Share2Icon, UsersIcon } from "lucide-react";
+import { CheckIcon, CopyIcon, ImageIcon, RadioIcon, Share2Icon, UsersIcon } from "lucide-react";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/palpite/empty-state";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -29,8 +29,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { createClient } from "@/lib/supabase/client";
 import { getBaseUrl } from "@/lib/base-url";
 import { initials } from "@/lib/palpite-data";
+import {
+  drawFlagBadge,
+  drawTrophyWatermark,
+  flagImageUrl,
+  loadCanvasImage,
+  withFlag,
+} from "@/lib/share-visuals";
+import { scoreStatusLabel, type ScoreStatus } from "@/lib/score-status-copy";
 
-type ScoreStatus = "pending" | "correct" | "partial" | "wrong" | "inverse_penalty";
 type BoardFilter = "today" | "yesterday" | "tomorrow" | "last5" | "last7" | "last15" | "last30" | "last45";
 
 type LiveBoardRow = {
@@ -95,26 +102,21 @@ function boardRange(filter: BoardFilter) {
 }
 
 function TeamFlagLabel({ logo, label }: { logo: string | null; label: string }) {
+  const flagSrc = logo ?? flagImageUrl(label, 80);
   return (
     <span className="inline-flex items-center gap-1.5">
       <span className="grid size-6 shrink-0 place-items-center overflow-hidden rounded bg-white">
-        {logo ? (
+        {flagSrc ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={logo} alt={`Bandeira de ${label}`} className="h-full w-full object-cover" />
-        ) : null}
+          <img src={flagSrc} alt={`Bandeira de ${label}`} className="h-full w-full object-cover" />
+        ) : (
+          <span className="text-[9px] font-bold text-slate-900">{label.slice(0, 2).toUpperCase()}</span>
+        )}
       </span>
       {label}
     </span>
   );
 }
-
-const statusLabel: Record<ScoreStatus, string> = {
-  correct: "Placar exato",
-  partial: "Parcial",
-  wrong: "Errou",
-  inverse_penalty: "Placar invertido",
-  pending: "Aguardando",
-};
 
 const statusShareEmoji: Record<ScoreStatus, string> = {
   correct: "🏆",
@@ -122,6 +124,22 @@ const statusShareEmoji: Record<ScoreStatus, string> = {
   wrong: "❌",
   inverse_penalty: "🔄",
   pending: "⏳",
+};
+
+const statusImageLabel: Record<ScoreStatus, string> = {
+  correct: "Acertou o placar",
+  partial: "Acertou parcialmente",
+  wrong: "Errou",
+  inverse_penalty: "Errou",
+  pending: "Aguardando resultado",
+};
+
+const statusImageColor: Record<ScoreStatus, string> = {
+  correct: "#22c55e",
+  partial: "#facc15",
+  wrong: "#fb7185",
+  inverse_penalty: "#fb7185",
+  pending: "#93c5fd",
 };
 
 const boardFilters: { value: BoardFilter; label: string }[] = [
@@ -142,7 +160,7 @@ function statusVariant(status: ScoreStatus): "default" | "secondary" | "destruct
 }
 
 function buildMatchShareText(info: LiveBoardRow, participants: LiveBoardRow[]) {
-  const matchTitle = `${info.home_label} x ${info.away_label}`;
+  const matchTitle = `${withFlag(info.home_label)} x ${withFlag(info.away_label)}`;
   const resultText =
     info.home_score === null || info.away_score === null
       ? "⏳ Placar ainda nao iniciado"
@@ -165,7 +183,7 @@ function buildMatchShareText(info: LiveBoardRow, participants: LiveBoardRow[]) {
       lines.push(
         `${podium} ${index + 1}. ${name}: ${row.predicted_home ?? "?"} x ${
           row.predicted_away ?? "?"
-        } | ${row.points} pts | ${statusShareEmoji[status]} ${statusLabel[status]}`
+        } | ${row.points} pts | ${statusShareEmoji[status]} ${scoreStatusLabel(status, info.status)}`
       );
     });
     if (participants.length > 16) {
@@ -177,9 +195,214 @@ function buildMatchShareText(info: LiveBoardRow, participants: LiveBoardRow[]) {
   return lines.join("\n");
 }
 
+function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let value = text;
+  while (value.length > 4 && ctx.measureText(`${value}...`).width > maxWidth) {
+    value = value.slice(0, -1);
+  }
+  return `${value}...`;
+}
+
+async function loadTeamFlag(label: string, logo: string | null) {
+  const flagUrl = flagImageUrl(label, 160);
+  if (flagUrl) {
+    const flag = await loadCanvasImage(flagUrl);
+    if (flag) return flag;
+  }
+  return logo ? loadCanvasImage(logo) : null;
+}
+
+async function drawMatchShareImage(info: LiveBoardRow, participants: LiveBoardRow[]) {
+  const W = 1080;
+  const H = 1920;
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, "#052e5f");
+  bg.addColorStop(0.48, "#061a44");
+  bg.addColorStop(1, "#020617");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+  await drawTrophyWatermark(ctx, W, H);
+
+  const accent = ctx.createLinearGradient(0, 0, W, 0);
+  accent.addColorStop(0, "#16a34a");
+  accent.addColorStop(0.5, "#38bdf8");
+  accent.addColorStop(1, "#f97316");
+  ctx.fillStyle = accent;
+  ctx.fillRect(0, 0, W, 16);
+
+  const logo = await loadCanvasImage("/logo/logo-apenas-desenho-sem-fundo.svg");
+  if (logo) ctx.drawImage(logo, 64, 54, 116, 116);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "800 58px Arial, sans-serif";
+  ctx.fillText("Palpitô", 198, 108);
+  ctx.fillStyle = "#bfdbfe";
+  ctx.font = "600 31px Arial, sans-serif";
+  ctx.fillText("Palpites do jogo", 200, 154);
+
+  const isLive = info.status === "live" || info.status === "halftime";
+  const isFinished = info.status === "finished";
+  ctx.textAlign = "right";
+  ctx.fillStyle = isLive ? "#fecaca" : "#bfdbfe";
+  ctx.font = "800 30px Arial, sans-serif";
+  ctx.fillText(isLive ? "AO VIVO" : isFinished ? "FINAL" : "AGENDADO", W - 72, 104);
+
+  const homeFlag = await loadTeamFlag(info.home_label, info.home_logo);
+  const awayFlag = await loadTeamFlag(info.away_label, info.away_logo);
+
+  const matchY = 265;
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.beginPath();
+  ctx.roundRect(64, matchY, W - 128, 360, 34);
+  ctx.fill();
+
+  drawFlagBadge(ctx, homeFlag, info.home_label, 112, matchY + 70, 128, 90);
+  drawFlagBadge(ctx, awayFlag, info.away_label, W - 240, matchY + 70, 128, 90);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "left";
+  ctx.font = "800 42px Arial, sans-serif";
+  ctx.fillText(fitText(ctx, info.home_label, 310), 112, matchY + 210);
+  ctx.textAlign = "right";
+  ctx.fillText(fitText(ctx, info.away_label, 310), W - 112, matchY + 210);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#facc15";
+  ctx.font = "900 88px Arial, sans-serif";
+  ctx.fillText(`${info.home_score ?? "-"} x ${info.away_score ?? "-"}`, W / 2, matchY + 175);
+
+  ctx.fillStyle = "#bfdbfe";
+  ctx.font = "600 30px Arial, sans-serif";
+  ctx.fillText(
+    info.home_score === null || info.away_score === null
+      ? "Aguardando placar"
+      : isLive
+        ? "Resultado atual"
+        : isFinished
+          ? "Resultado final"
+          : `Jogo ${formatKickoff(info.match_date)}`,
+    W / 2,
+    matchY + 265,
+  );
+
+  const summary = {
+    correct: participants.filter((row) => row.score_status === "correct").length,
+    partial: participants.filter((row) => row.score_status === "partial").length,
+    wrong: participants.filter((row) => row.score_status === "wrong" || row.score_status === "inverse_penalty").length,
+  };
+
+  const chipY = matchY + 300;
+  const chips = [
+    { text: `${summary.correct} placar exato`, color: "#22c55e" },
+    { text: `${summary.partial} parcial`, color: "#facc15" },
+    { text: `${summary.wrong} errou`, color: "#fb7185" },
+  ];
+  let chipX = 137;
+  for (const chip of chips) {
+    ctx.fillStyle = "rgba(15,23,42,0.62)";
+    ctx.beginPath();
+    ctx.roundRect(chipX, chipY, 250, 44, 22);
+    ctx.fill();
+    ctx.fillStyle = chip.color;
+    ctx.beginPath();
+    ctx.arc(chipX + 28, chipY + 22, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "700 24px Arial, sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(chip.text, chipX + 48, chipY + 30);
+    chipX += 270;
+  }
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "800 42px Arial, sans-serif";
+  ctx.fillText("Palpites", 80, 720);
+
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#93c5fd";
+  ctx.font = "700 28px Arial, sans-serif";
+  ctx.fillText(`${participants.length} participante(s)`, W - 80, 720);
+
+  const rowStartY = 790;
+  const rowH = 88;
+  const maxRows = 11;
+  const shown = participants.slice(0, maxRows);
+
+  if (shown.length === 0) {
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    ctx.beginPath();
+    ctx.roundRect(72, rowStartY, W - 144, 112, 24);
+    ctx.fill();
+    ctx.fillStyle = "#bfdbfe";
+    ctx.font = "700 34px Arial, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Nenhum palpite ainda neste jogo.", W / 2, rowStartY + 70);
+  } else {
+    shown.forEach((row, index) => {
+      const y = rowStartY + index * rowH;
+      const status = row.score_status ?? "pending";
+      const name = row.display_name ?? "Participante";
+
+      ctx.fillStyle = index % 2 === 0 ? "rgba(255,255,255,0.085)" : "rgba(255,255,255,0.045)";
+      ctx.beginPath();
+      ctx.roundRect(72, y, W - 144, 70, 20);
+      ctx.fill();
+
+      ctx.fillStyle = "#dbeafe";
+      ctx.font = "800 26px Arial, sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText(`${index + 1}.`, 96, y + 45);
+
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "800 30px Arial, sans-serif";
+      ctx.fillText(fitText(ctx, name, 360), 150, y + 45);
+
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#facc15";
+      ctx.font = "900 32px Arial, sans-serif";
+      ctx.fillText(`${row.predicted_home ?? "?"} x ${row.predicted_away ?? "?"}`, 570, y + 45);
+
+      ctx.textAlign = "left";
+      ctx.fillStyle = statusImageColor[status];
+      ctx.font = "800 24px Arial, sans-serif";
+      ctx.fillText(fitText(ctx, statusImageLabel[status], 220), 686, y + 32);
+      ctx.fillStyle = "#bfdbfe";
+      ctx.font = "700 21px Arial, sans-serif";
+      ctx.fillText(`${row.points > 0 ? "+" : ""}${row.points} pts`, 686, y + 57);
+    });
+  }
+
+  if (participants.length > maxRows) {
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#93c5fd";
+    ctx.font = "700 30px Arial, sans-serif";
+    ctx.fillText(`+${participants.length - maxRows} palpites no jogo`, W / 2, rowStartY + maxRows * rowH + 18);
+  }
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#bfdbfe";
+  ctx.font = "700 31px Arial, sans-serif";
+  ctx.fillText("Acompanhe os palpites ao vivo", W / 2, H - 150);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "800 34px Arial, sans-serif";
+  ctx.fillText(getBaseUrl(), W / 2, H - 104);
+
+  return new Promise<Blob | null>((resolve) => canvas.toBlob((blob) => resolve(blob), "image/png"));
+}
+
 function ShareMatchButton({ info, participants }: { info: LiveBoardRow; participants: LiveBoardRow[] }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const text = useMemo(() => buildMatchShareText(info, participants), [info, participants]);
 
   async function copyText() {
@@ -194,6 +417,40 @@ function ShareMatchButton({ info, participants }: { info: LiveBoardRow; particip
 
   function sendWhatsApp() {
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+  }
+
+  async function shareImage() {
+    setGenerating(true);
+    try {
+      const blob = await drawMatchShareImage(info, participants);
+      if (!blob) {
+        toast.error("Nao foi possivel gerar a imagem.");
+        return;
+      }
+      const file = new File([blob], "palpites-do-jogo.png", { type: "image/png" });
+      const nav = navigator as Navigator & { canShare?: (data?: ShareData) => boolean };
+      if (nav.canShare?.({ files: [file] }) && nav.share) {
+        await nav.share({
+          files: [file],
+          title: "Palpites do jogo",
+          text: `${info.home_label} x ${info.away_label}`,
+        });
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "palpites-do-jogo.png";
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success("Imagem gerada.");
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name !== "AbortError") {
+        toast.error("Nao foi possivel compartilhar a imagem.");
+      }
+    } finally {
+      setGenerating(false);
+    }
   }
 
   function handleOpenChange(nextOpen: boolean) {
@@ -217,7 +474,7 @@ function ShareMatchButton({ info, participants }: { info: LiveBoardRow; particip
           </DialogDescription>
         </DialogHeader>
         <Textarea readOnly value={text} className="h-64 resize-none text-sm" />
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2 sm:grid-cols-3">
           <Button variant="secondary" onClick={copyText}>
             {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
             {copied ? "Copiado" : "Copiar"}
@@ -225,6 +482,10 @@ function ShareMatchButton({ info, participants }: { info: LiveBoardRow; particip
           <Button onClick={sendWhatsApp}>
             <Share2Icon className="size-4" />
             WhatsApp
+          </Button>
+          <Button onClick={shareImage} disabled={generating}>
+            <ImageIcon className="size-4" />
+            {generating ? "Gerando..." : "Imagem"}
           </Button>
         </div>
       </DialogContent>
@@ -350,6 +611,7 @@ export function LiveBoard({ groupId }: { groupId?: string }) {
       {loaded && matches.map(({ info, rows: matchRows }) => {
         const isLive = info.status === "live" || info.status === "halftime";
         const isFinished = info.status === "finished";
+        const waitingLiveScore = isLive && (info.home_score === null || info.away_score === null);
         const participants = matchRows
           .filter((row) => row.user_id)
           .sort((a, b) => b.points - a.points);
@@ -375,7 +637,7 @@ export function LiveBoard({ groupId }: { groupId?: string }) {
                     <TeamFlagLabel logo={info.away_logo} label={info.away_label} />
                   </CardTitle>
                   <p className="text-xs text-muted-foreground">
-                    {isFinished ? "Encerrado" : `Hoje ${formatKickoff(info.match_date)}`}
+                    {waitingLiveScore ? "Ao vivo aguardando placar" : isFinished ? "Encerrado" : `Hoje ${formatKickoff(info.match_date)}`}
                   </p>
                 </div>
               </div>
@@ -386,7 +648,7 @@ export function LiveBoard({ groupId }: { groupId?: string }) {
                 <ShareMatchButton info={info} participants={participants} />
                 <Badge variant={isLive ? "destructive" : "secondary"} className="gap-1">
                   {isLive ? <RadioIcon className="size-3" /> : null}
-                  {isLive ? "Ao vivo" : isFinished ? "Finalizado" : "Agendado"}
+                  {waitingLiveScore ? "Aguardando placar" : isLive ? "Ao vivo" : isFinished ? "Finalizado" : "Agendado"}
                 </Badge>
               </div>
             </CardHeader>
@@ -423,7 +685,7 @@ export function LiveBoard({ groupId }: { groupId?: string }) {
                                 <div className="min-w-0">
                                   <span className="block max-w-28 truncate font-medium sm:max-w-40">{name}</span>
                                   <span className="text-[11px] text-muted-foreground sm:hidden">
-                                    {statusLabel[status]}
+                                    {scoreStatusLabel(status, info.status)}
                                   </span>
                                 </div>
                               </div>
@@ -432,7 +694,7 @@ export function LiveBoard({ groupId }: { groupId?: string }) {
                               {row.predicted_home ?? "?"} : {row.predicted_away ?? "?"}
                             </TableCell>
                             <TableCell className="hidden sm:table-cell">
-                              <Badge variant={statusVariant(status)}>{statusLabel[status]}</Badge>
+                              <Badge variant={statusVariant(status)}>{scoreStatusLabel(status, info.status)}</Badge>
                             </TableCell>
                             <TableCell className="text-right font-bold tabular-nums">
                               {row.points > 0 ? "+" : ""}

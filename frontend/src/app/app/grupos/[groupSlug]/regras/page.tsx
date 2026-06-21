@@ -1,12 +1,14 @@
 import { SettingsIcon } from "lucide-react";
 import { AppShell } from "@/components/palpite/app-shell";
+import { DeleteGroupButton } from "@/components/palpite/delete-group-button";
+import { BestPlayerRulesForm } from "@/components/palpite/best-player-rules-form";
 import { EmptyState } from "@/components/palpite/empty-state";
 import { GroupInviteSettings } from "@/components/palpite/group-invite-settings";
 import { ScreenHeader } from "@/components/palpite/screen-header";
 import { ScoringRulesForm } from "@/components/palpite/scoring-rules-form";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getGroupData, getScoringRules, getWorldCupData } from "@/lib/palpite-live-data";
+import { getBestPlayerPageData, getGroupData, getScoringRules, getWorldCupData } from "@/lib/palpite-live-data";
 
 export const dynamic = "force-dynamic";
 
@@ -14,11 +16,19 @@ export default async function RulesPage({ params }: { params: Promise<{ groupSlu
   const { groupSlug } = await params;
   const [worldCup, groupData] = await Promise.all([getWorldCupData(), getGroupData(groupSlug)]);
   const rules = await getScoringRules(groupData.group?.id);
+  const bestPlayerData = await getBestPlayerPageData(groupData.group?.id);
+  const canManage = groupData.group?.role === "owner" || groupData.group?.role === "admin";
 
   return (
     <AppShell groupName={groupData.group?.name ?? "Grupo"} groupSlug={groupSlug} teams={worldCup.teams}>
       <ScreenHeader icon={SettingsIcon} eyebrow="Administracao" title="Regras de pontuacao" description="Os participantes visualizam as regras. Donos e administradores podem alterar a pontuacao." action={<Badge variant="secondary">Apenas administradores</Badge>} />
       <section className="grid gap-4 lg:grid-cols-[1fr_420px]">
+        {groupData.group ? (
+          <Card className="border-amber-300/50 bg-white/86 backdrop-blur dark:bg-slate-950/70 lg:col-span-2">
+            <CardHeader><CardTitle className="font-heading text-2xl">Pontos extras — Time da Rodada</CardTitle></CardHeader>
+            <CardContent><BestPlayerRulesForm groupId={groupData.group.id} rules={bestPlayerData.rules} canManage={canManage} /></CardContent>
+          </Card>
+        ) : null}
         {!rules ? (
           <EmptyState icon={SettingsIcon} title="Regras nao definidas" description="As regras de pontuacao deste grupo ainda nao foram configuradas." />
         ) : (
@@ -43,6 +53,17 @@ export default async function RulesPage({ params }: { params: Promise<{ groupSlu
             <GroupInviteSettings group={groupData.group} />
           </CardContent>
         </Card>
+        {canManage && groupData.group ? (
+          <Card className="border-destructive/40 bg-destructive/5 lg:col-start-2">
+            <CardHeader><CardTitle className="font-heading text-2xl text-destructive">Zona de perigo</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Ao apagar o grupo, todos os dados vinculados a ele serão excluídos permanentemente.
+              </p>
+              <DeleteGroupButton groupId={groupData.group.id} groupName={groupData.group.name} />
+            </CardContent>
+          </Card>
+        ) : null}
       </section>
     </AppShell>
   );

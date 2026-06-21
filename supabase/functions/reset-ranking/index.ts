@@ -23,11 +23,13 @@ Deno.serve(async (req) => {
 
     await ensureActiveMember(admin, groupId, user.id, ["owner", "admin"]);
 
-    const { count, error } = await admin
-      .from("prediction_scores")
-      .delete({ count: "exact" })
-      .eq("group_id", groupId);
-    if (error) throw error;
+    const [predictionResult, bestPlayersResult] = await Promise.all([
+      admin.from("prediction_scores").delete({ count: "exact" }).eq("group_id", groupId),
+      admin.from("best_player_scores").delete({ count: "exact" }).eq("group_id", groupId),
+    ]);
+    if (predictionResult.error) throw predictionResult.error;
+    if (bestPlayersResult.error) throw bestPlayersResult.error;
+    const deletedCount = (predictionResult.count ?? 0) + (bestPlayersResult.count ?? 0);
 
     await admin.from("audit_logs").insert({
       user_id: user.id,
@@ -35,10 +37,14 @@ Deno.serve(async (req) => {
       action: "reset_ranking",
       entity_type: "prediction_scores",
       entity_id: groupId,
-      metadata: { deleted_count: count ?? 0 },
+      metadata: {
+        deleted_count: deletedCount,
+        prediction_scores: predictionResult.count ?? 0,
+        best_player_scores: bestPlayersResult.count ?? 0,
+      },
     });
 
-    return json(200, { status: "success", deleted_count: count ?? 0 });
+    return json(200, { status: "success", deleted_count: deletedCount });
   } catch (error) {
     return handleError(error);
   }

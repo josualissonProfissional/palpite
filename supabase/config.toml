@@ -109,8 +109,8 @@ port = 54324
 # Uncomment to expose additional ports for testing user applications that send emails.
 # smtp_port = 54325
 # pop3_port = 54326
-# admin_email = "admin@email.com"
-# sender_name = "Admin"
+admin_email = "contato@palpito.shop"
+sender_name = "Palpitô"
 
 [storage]
 enabled = true
@@ -247,6 +247,10 @@ otp_expiry = 3600
 # [auth.email.template.invite]
 # subject = "You have been invited"
 # content_path = "./supabase/templates/invite.html"
+
+[auth.email.template.recovery]
+subject = "Palpitô -  Recuperação de senha"
+content_path = "./supabase/templates/recovery.html"
 
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]
@@ -423,6 +427,12 @@ entrypoint = "./functions/sync-matches/index.ts"
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/sync-matches/*.html" ]
 
+[functions.sync-live]
+enabled = true
+verify_jwt = false
+import_map = "./functions/sync-live/deno.json"
+entrypoint = "./functions/sync-live/index.ts"
+
 [functions.recalculate-scores]
 enabled = true
 verify_jwt = false
@@ -444,6 +454,36 @@ entrypoint = "./functions/save-prediction/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/save-prediction/*.html" ]
+
+[functions.save-prediction-all-groups]
+enabled = true
+verify_jwt = true
+import_map = "./functions/save-prediction-all-groups/deno.json"
+entrypoint = "./functions/save-prediction-all-groups/index.ts"
+
+[functions.save-best-player-ballot]
+enabled = true
+verify_jwt = true
+import_map = "./functions/save-best-player-ballot/deno.json"
+entrypoint = "./functions/save-best-player-ballot/index.ts"
+
+[functions.configure-round-voting]
+enabled = true
+verify_jwt = true
+import_map = "./functions/configure-round-voting/deno.json"
+entrypoint = "./functions/configure-round-voting/index.ts"
+
+[functions.reset-ranking]
+enabled = true
+verify_jwt = true
+import_map = "./functions/reset-ranking/deno.json"
+entrypoint = "./functions/reset-ranking/index.ts"
+
+[functions.admin-dashboard]
+enabled = true
+verify_jwt = true
+import_map = "./functions/admin-dashboard/deno.json"
+entrypoint = "./functions/admin-dashboard/index.ts"
 
 [functions.create-invite]
 enabled = true

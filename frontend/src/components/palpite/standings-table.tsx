@@ -31,8 +31,8 @@ export function StandingsTable({ standings }: { standings: Standing[] }) {
   }, {});
 
   return (
-    <div className="overflow-hidden rounded-lg border bg-card/90">
-      <Table className="min-w-[620px]">
+    <div className="w-full min-w-0 max-w-full overflow-x-auto rounded-lg border bg-card/90">
+      <Table className="min-w-[540px]">
         <TableCaption>Classificacao da Copa do Mundo 2026.</TableCaption>
         <TableHeader>
           <TableRow>

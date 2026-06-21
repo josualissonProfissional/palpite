@@ -2,6 +2,7 @@ import { CrownIcon, ShieldIcon, UsersIcon } from "lucide-react";
 import { AppShell } from "@/components/palpite/app-shell";
 import { EmptyState } from "@/components/palpite/empty-state";
 import { InviteFriendButton } from "@/components/palpite/invite-friend-button";
+import { PromoteMemberButton } from "@/components/palpite/promote-member-button";
 import { RemoveMemberButton } from "@/components/palpite/remove-member-button";
 import { ScreenHeader } from "@/components/palpite/screen-header";
 import { createClient } from "@/lib/supabase/server";
@@ -56,7 +57,16 @@ export default async function MembersPage({ params }: { params: Promise<{ groupS
                   {canManage ? (
                     <TableCell className="text-right">
                       {groupId && member.role !== "owner" && member.userId !== user?.id ? (
-                        <RemoveMemberButton groupId={groupId} memberUserId={member.userId} memberName={member.name} />
+                        <div className="flex items-center justify-end gap-2">
+                          {member.role === "member" && member.status === "active" ? (
+                            <PromoteMemberButton
+                              groupId={groupId}
+                              memberUserId={member.userId}
+                              memberName={member.name}
+                            />
+                          ) : null}
+                          <RemoveMemberButton groupId={groupId} memberUserId={member.userId} memberName={member.name} />
+                        </div>
                       ) : null}
                     </TableCell>
                   ) : null}

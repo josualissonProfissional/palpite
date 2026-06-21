@@ -47,6 +47,7 @@ export type RankingRow = {
   avatarFallback: string;
   avatarUrl?: string;
   points: number;
+  bestPlayersPoints: number;
   exactScores: number;
   partialHits: number;
   penalties: number;
@@ -80,6 +81,53 @@ export type ScoringRules = {
   showPredictionsAfterLock: boolean;
 };
 
+export type BestPlayerPosition = "gk" | "df" | "mf" | "fw";
+export type BestPlayerFormation = "4-3-3" | "4-4-2" | "3-5-2" | "free-11";
+
+export type BestPlayerRules = {
+  dailyVotingEnabled: boolean;
+  roundTeamVotingEnabled: boolean;
+  pointsPerAverageHit: number;
+  allowDailyVoteEditBeforeClose: boolean;
+  allowRoundVoteEditBeforeClose: boolean;
+  allowDailyVoteEditAfterClose: false;
+  allowRoundTeamEditAfterClose: false;
+  respectPlayerPosition: boolean;
+};
+
+export type BestPlayer = {
+  id: string;
+  name: string;
+  position: BestPlayerPosition;
+  shirtNumber?: number;
+  teamId: string;
+  teamName: string;
+  teamCountry?: string;
+  teamLogoUrl?: string;
+  participationStatus: "starter" | "bench" | "unknown";
+};
+
+export type BestPlayerSelection = {
+  playerId: string;
+  slotIndex: number;
+  selectedRole: BestPlayerPosition;
+};
+
+export type BestPlayerWindow = {
+  id: string;
+  kind: "daily" | "round";
+  voteDate?: string;
+  roundName?: string;
+  status: "scheduled" | "open" | "closed" | "finalized" | "cancelled";
+  openedAt?: string;
+  closesAt?: string;
+  durationMinutes?: number;
+  eligibilitySource?: "appearances" | "squad";
+  allowEdit: boolean;
+  respectPosition: boolean;
+  resultFormation?: BestPlayerFormation;
+};
+
 export type GroupSummary = {
   id: string;
   name: string;
@@ -94,6 +142,29 @@ export type GroupSummary = {
 
 export function flagUrl(code: string, size: 40 | 80 | 160 = 80) {
   return `https://flagcdn.com/w${size}/${code}.png`;
+}
+
+const countryToCode: Record<string, string> = {
+  ARG: "AR", ARGENTINA: "AR", AUS: "AU", AUSTRALIA: "AU", AUT: "AT", AUSTRIA: "AT",
+  BEL: "BE", BELGIUM: "BE", BRA: "BR", BRAZIL: "BR", CAN: "CA", CANADA: "CA",
+  CHI: "CL", CHILE: "CL", COL: "CO", COLOMBIA: "CO", CRC: "CR", "COSTA RICA": "CR",
+  CRO: "HR", CROATIA: "HR", CUR: "CW", "CURAÇAO": "CW", CURACAO: "CW", DEN: "DK", DENMARK: "DK",
+  ECU: "EC", ECUADOR: "EC", EGY: "EG", EGYPT: "EG", ENG: "GB", ENGLAND: "GB", ESP: "ES", SPAIN: "ES",
+  FRA: "FR", FRANCE: "FR", GER: "DE", DEU: "DE", GERMANY: "DE", GHA: "GH", GHANA: "GH",
+  HAI: "HT", HAITI: "HT", IRN: "IR", IRAN: "IR", ITA: "IT", ITALY: "IT", JAM: "JM", JAMAICA: "JM",
+  JPN: "JP", JAPAN: "JP", KOR: "KR", "SOUTH KOREA": "KR", MAR: "MA", MOROCCO: "MA", MEX: "MX", MEXICO: "MX",
+  NED: "NL", NETHERLANDS: "NL", NZL: "NZ", "NEW ZEALAND": "NZ", NOR: "NO", NORWAY: "NO", PAN: "PA", PANAMA: "PA",
+  PAR: "PY", PARAGUAY: "PY", POR: "PT", PORTUGAL: "PT", QAT: "QA", QATAR: "QA", KSA: "SA", "SAUDI ARABIA": "SA",
+  SCO: "GB", SCOTLAND: "GB", SEN: "SN", SENEGAL: "SN", SWE: "SE", SWEDEN: "SE", SUI: "CH", SWITZERLAND: "CH",
+  TUN: "TN", TUNISIA: "TN", TUR: "TR", TURKEY: "TR", URU: "UY", URUGUAY: "UY", USA: "US", "UNITED STATES": "US",
+};
+
+export function countryFlag(country?: string) {
+  const normalized = String(country ?? "").trim().toUpperCase();
+  const code = normalized.length === 2 ? normalized : countryToCode[normalized];
+  return code && /^[A-Z]{2}$/.test(code)
+    ? String.fromCodePoint(...[...code].map((char) => 0x1F1E6 + char.charCodeAt(0) - 65))
+    : "🏳️";
 }
 
 export function initials(value: string) {

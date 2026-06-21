@@ -14,10 +14,23 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { getBaseUrl } from "@/lib/base-url";
+import { cn } from "@/lib/utils";
+import {
+  drawFlagBadge,
+  drawTrophyWatermark,
+  flagImageUrl,
+  loadCanvasImage,
+  withFlag,
+} from "@/lib/share-visuals";
+import { scoreStatusShortLabel } from "@/lib/score-status-copy";
 
 export type SharePrediction = {
   home: string;
   away: string;
+  homeFlagUrl?: string;
+  awayFlagUrl?: string;
+  homeFlagHint?: string;
+  awayFlagHint?: string;
   predictedHome: number;
   predictedAway: number;
   resultHome?: number;
@@ -31,6 +44,8 @@ type SharePredictionsProps = {
   groupName: string;
   predictions: SharePrediction[];
   totalPoints: number;
+  triggerLabel?: string;
+  triggerClassName?: string;
 };
 
 const statusEmoji: Record<NonNullable<SharePrediction["status"]>, string> = {
@@ -50,7 +65,11 @@ function resultTag(p: SharePrediction) {
 function buildText({ groupName, predictions, totalPoints }: SharePredictionsProps) {
   const lines = predictions.map((p) => {
     const dot = p.status ? `${statusEmoji[p.status]} ` : "⚽ ";
-    return `${dot}${p.home} ${p.predictedHome} x ${p.predictedAway} ${p.away}${resultTag(p)}`;
+    const status = p.status && p.status !== "pending" ? ` | ${scoreStatusShortLabel(p.status, p.matchStatus)}` : "";
+    return `${dot}${withFlag(p.home, p.homeFlagHint)} ${p.predictedHome} x ${p.predictedAway} ${withFlag(
+      p.away,
+      p.awayFlagHint,
+    )}${status}${resultTag(p)}`;
   });
   return [
     `🏆 Meus palpites — ${groupName}`,
@@ -62,14 +81,13 @@ function buildText({ groupName, predictions, totalPoints }: SharePredictionsProp
   ].join("\n");
 }
 
-function loadImage(src: string): Promise<HTMLImageElement | null> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = src;
-  });
+function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let value = text;
+  while (value.length > 4 && ctx.measureText(`${value}...`).width > maxWidth) {
+    value = value.slice(0, -1);
+  }
+  return `${value}...`;
 }
 
 async function drawStoryImage({ groupName, predictions, totalPoints }: SharePredictionsProps): Promise<Blob | null> {
@@ -86,6 +104,7 @@ async function drawStoryImage({ groupName, predictions, totalPoints }: SharePred
   bg.addColorStop(1, "#05132e");
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
+  await drawTrophyWatermark(ctx, W, H);
 
   const accent = ctx.createLinearGradient(0, 0, W, 0);
   accent.addColorStop(0, "#2563eb");
@@ -94,7 +113,7 @@ async function drawStoryImage({ groupName, predictions, totalPoints }: SharePred
   ctx.fillRect(0, 0, W, 16);
 
   // logo Palpitô no topo
-  const logo = await loadImage("/logo/logo-apenas-desenho-sem-fundo.svg");
+  const logo = await loadCanvasImage("/logo/logo-apenas-desenho-sem-fundo.svg");
   if (logo) {
     const s = 150;
     ctx.drawImage(logo, (W - s) / 2, 70, s, s);
@@ -114,19 +133,25 @@ async function drawStoryImage({ groupName, predictions, totalPoints }: SharePred
   const startY = 470;
   const rowH = 108;
 
-  shown.forEach((p, i) => {
+  for (const [i, p] of shown.entries()) {
     const y = startY + i * rowH;
     const x = 90;
     const w = W - 180;
+    const homeFlag = await loadCanvasImage(flagImageUrl(p.homeFlagHint ?? p.home, 160) ?? p.homeFlagUrl ?? "");
+    const awayFlag = await loadCanvasImage(flagImageUrl(p.awayFlagHint ?? p.away, 160) ?? p.awayFlagUrl ?? "");
+
     ctx.fillStyle = "rgba(255,255,255,0.06)";
     ctx.beginPath();
     ctx.roundRect(x, y, w, 92, 24);
     ctx.fill();
 
+    drawFlagBadge(ctx, homeFlag, p.home, x + 28, y + 22, 58, 40);
+    drawFlagBadge(ctx, awayFlag, p.away, x + w - 86, y + 22, 58, 40);
+
     ctx.fillStyle = "#ffffff";
-    ctx.font = "700 38px Arial, sans-serif";
+    ctx.font = "700 34px Arial, sans-serif";
     ctx.textAlign = "left";
-    ctx.fillText(p.home, x + 32, y + 44);
+    ctx.fillText(fitText(ctx, p.home, 250), x + 100, y + 47);
 
     ctx.textAlign = "center";
     ctx.fillStyle = "#fbbf24";
@@ -135,8 +160,8 @@ async function drawStoryImage({ groupName, predictions, totalPoints }: SharePred
 
     ctx.textAlign = "right";
     ctx.fillStyle = "#ffffff";
-    ctx.font = "700 38px Arial, sans-serif";
-    ctx.fillText(p.away, x + w - 32, y + 44);
+    ctx.font = "700 34px Arial, sans-serif";
+    ctx.fillText(fitText(ctx, p.away, 250), x + w - 100, y + 47);
 
     // resultado ao vivo (quando houver)
     if (typeof p.resultHome === "number" && typeof p.resultAway === "number") {
@@ -146,7 +171,7 @@ async function drawStoryImage({ groupName, predictions, totalPoints }: SharePred
       ctx.font = "600 26px Arial, sans-serif";
       ctx.fillText(`Resultado ${p.resultHome} x ${p.resultAway}${live ? "  ·  " + live : ""}`, W / 2, y + 78);
     }
-  });
+  }
 
   if (predictions.length > maxRows) {
     ctx.textAlign = "center";
@@ -219,9 +244,14 @@ export function SharePredictions(props: SharePredictionsProps) {
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="secondary" size="sm" disabled={props.predictions.length === 0}>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={props.predictions.length === 0}
+          className={cn(props.triggerClassName)}
+        >
           <Share2Icon className="size-4" />
-          Compartilhar palpites
+          {props.triggerLabel ?? "Compartilhar palpites"}
         </Button>
       </DialogTrigger>
       <DialogContent>
