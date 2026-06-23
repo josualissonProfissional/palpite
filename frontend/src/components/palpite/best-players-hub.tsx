@@ -78,6 +78,20 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
   const [selectedDailyGroupUserId, setSelectedDailyGroupUserId] = useState(() => data.dailyGroupTeams[0]?.userId ?? "");
   const selectedDailyGroupTeam = data.dailyGroupTeams.find((team) => team.userId === selectedDailyGroupUserId) ?? data.dailyGroupTeams[0];
 
+  // Garante que o time selecionado sempre tenha um userId valido
+  const effectiveGroupUserId = selectedDailyGroupTeam?.userId ?? data.dailyGroupTeams[0]?.userId ?? "";
+  const effectiveGroupTeam = data.dailyGroupTeams.find((team) => team.userId === effectiveGroupUserId) ?? data.dailyGroupTeams[0];
+
+  const dailyCorrectIds = useMemo(() => {
+    if (!effectiveGroupTeam) return undefined;
+    const resultByRole = new Map(data.dailyResult.map((r) => [r.playerId, r.selectedRole]));
+    const correct = new Set<string>();
+    for (const s of effectiveGroupTeam.selections) {
+      if (resultByRole.get(s.playerId) === s.selectedRole) correct.add(s.playerId);
+    }
+    return correct;
+  }, [effectiveGroupTeam, data.dailyResult]);
+
 
   // Detecta expiracao local do countdown para travar a UI imediatamente,
   // sem esperar o proximo sync-live atualizar o status no banco.
@@ -236,7 +250,7 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
                 <CardContent className="space-y-3">
                   <div className="space-y-1">
                     {data.dailyGroupTeams.map((team, index) => {
-                      const isSelected = selectedDailyGroupTeam?.userId === team.userId;
+                      const isSelected = effectiveGroupTeam?.userId === team.userId;
                       const medal = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : "";
                       return (
                         <Button key={team.userId} type="button" variant={isSelected ? "default" : "ghost"} className="flex w-full items-center justify-between gap-3 px-4 py-3 h-auto" onClick={() => setSelectedDailyGroupUserId(team.userId)}>
@@ -252,10 +266,10 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
                       );
                     })}
                   </div>
-                  {selectedDailyGroupTeam ? (
+                  {effectiveGroupTeam ? (
                     <>
                       <div className="border-t pt-3" />
-                      <BestTeamViewer title="Time do Dia" ownerName={selectedDailyGroupTeam.displayName} formation={selectedDailyGroupTeam.formation} players={dailyResultPlayers} selections={selectedDailyGroupTeam.selections} subtitle={data.dailyWindow.voteDate} score={{ hits: selectedDailyGroupTeam.hits, points: selectedDailyGroupTeam.points }} />
+                      <BestTeamViewer title="Time do Dia" ownerName={effectiveGroupTeam.displayName} formation={effectiveGroupTeam.formation} players={dailyResultPlayers} selections={effectiveGroupTeam.selections} subtitle={data.dailyWindow.voteDate} score={{ hits: effectiveGroupTeam.hits, points: effectiveGroupTeam.points }} />
                     </>
                   ) : null}
                 </CardContent>
