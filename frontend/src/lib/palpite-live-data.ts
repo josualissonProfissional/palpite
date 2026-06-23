@@ -3,11 +3,11 @@ import {
   type BestPlayer,
   type BestPlayerFormation,
   type BestPlayerRules,
+  type GroupSummary,
   type BestPlayerSelection,
   type BestPlayerWindow,
-  initials,
-  type GroupSummary,
   type Match,
+  initials,
   type Member,
   type PendingAction,
   type RankingRow,
@@ -815,7 +815,10 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
   const { data: authData } = await supabase.auth.getUser();
   if (!authData.user) return empty;
   const db = supabase.schema("palpite");
-  const [rulesResponse, windowsResponse] = await Promise.all([
+  let [rulesResponse, windowsResponse] = await Promise.all([
+
+  // Dispara a finalizacao de janelas expiradas para garantir que o resultado
+  // aparece mesmo quando o sync-live/cron ainda nao rodou.
     db.from("best_player_rules").select("*").eq("group_id", groupId).maybeSingle(),
     db.from("best_player_voting_windows")
       .select("id,kind,vote_date,round_name,status,opened_at,closes_at,duration_minutes,eligibility_source,allow_edit_snapshot,respect_position_snapshot,result_formation,group_id")
@@ -823,6 +826,18 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
       .order("created_at", { ascending: false }),
   ]);
 
+
+  // Dispara a finalizacao de janelas expiradas e recarrega os dados
+  try {
+    await db.rpc("process_best_player_windows");
+    const { data: refreshed } = await db.from("best_player_voting_windows")
+      .select("id,kind,vote_date,round_name,status,opened_at,closes_at,duration_minutes,eligibility_source,allow_edit_snapshot,respect_position_snapshot,result_formation,group_id")
+      .eq("group_id", groupId)
+      .order("created_at", { ascending: false });
+    if (refreshed) windowsResponse = { data: refreshed, error: null } as typeof windowsResponse;
+  } catch (_e) {
+    /* non-fatal */
+  }
   const rulesRow = rulesResponse.data as Record<string, unknown> | null;
   const rules: BestPlayerRules = rulesRow ? {
     dailyVotingEnabled: Boolean(rulesRow.daily_voting_enabled),
