@@ -113,6 +113,7 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
   // Segundo dia anterior (paginacao)
   const pastDays = useMemo(() => data.pastDaysResultsJson.map((j: string) => { try { return JSON.parse(j); } catch { return null; } }).filter(Boolean) as any[], [data.pastDaysResultsJson]);
   const [pastDayIdx, setPastDayIdx] = useState(0);
+  const [viewingHistory, setViewingHistory] = useState(false);
   const activePrevious = pastDayIdx > 0 ? pastDays[pastDayIdx - 1] : last;
   const activePreviousSelections = useMemo(() => activePrevious?.result.map(({ playerId, slotIndex, selectedRole }: any) => ({ playerId, slotIndex, selectedRole })) ?? [], [activePrevious]);
   const activePreviousPlayers = useMemo(() => activePrevious?.allPlayers ?? [], [activePrevious]);
@@ -183,6 +184,7 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
       </TabsList>
 
       <TabsContent value="daily" className="space-y-4">
+        <div style={viewingHistory ? { display: "none" } : undefined}>
         {data.dailyWindow?.status === "finalized" && data.dailyScore ? (
           <Card className="border-amber-300 bg-amber-50/80 dark:bg-amber-950/30">
             <CardContent className="flex items-center gap-3 p-4 font-heading text-lg font-bold">
@@ -280,6 +282,7 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
         ) : (
           <MessageCard icon={LockIcon} title="Votação do Time do Dia encerrada" description="Você não enviou um time antes do fechamento desta janela." />
         )}
+        </div>
 
         {/* Resultado do dia anterior */}
         {activePrevious && data.dailyWindow?.status !== "finalized" && activePrevious.result.length === 11 ? (
@@ -289,10 +292,11 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
                 <div className="font-heading text-lg font-bold">Resultado anterior — {activePrevious.window.voteDate}</div>
                 {(pastDays.length > 0) ? (
                   <div className="flex gap-1">
-                    <Button size="sm" variant="outline" onClick={() => setPastDayIdx(Math.max(0, pastDayIdx - 1))} disabled={pastDayIdx === 0} className="text-xs h-7 px-2">◀</Button>
-                    <span className="text-xs font-bold px-2">{pastDayIdx === 0 ? "Ontem" : pastDays[pastDayIdx - 1]?.window?.voteDate ?? ""}</span><Button size="sm" variant="outline" onClick={() => setPastDayIdx(Math.min(pastDays.length, pastDayIdx + 1))} disabled={pastDayIdx >= pastDays.length} className="text-xs h-7 px-2">▶</Button>
+                    <Button size="sm" variant="outline" onClick={() => { setPastDayIdx(Math.max(0, pastDayIdx - 1)); setViewingHistory(true); }} disabled={pastDayIdx === 0} className="text-xs h-7 px-2">◀</Button>
+                    <span className="text-xs font-bold px-2">{pastDayIdx === 0 ? "Ontem" : pastDays[pastDayIdx - 1]?.window?.voteDate ?? ""}</span><Button size="sm" variant="outline" onClick={() => { setPastDayIdx(Math.min(pastDays.length, pastDayIdx + 1)); setViewingHistory(true); }} disabled={pastDayIdx >= pastDays.length} className="text-xs h-7 px-2">▶</Button>
                   </div>
                 ) : null}
+            {viewingHistory ? <Button size="sm" variant="ghost" onClick={() => setViewingHistory(false)} className="text-xs mt-2">← Voltar ao dia atual</Button> : null}
               </div>
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" onClick={handleShareImage} disabled={generating}>
