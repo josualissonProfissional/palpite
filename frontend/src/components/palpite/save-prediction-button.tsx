@@ -195,7 +195,7 @@ export function SavePredictionButton({
     setWizardLoading(true);
     const supabase = createClient();
     const [{ data: playerRows, error: playersError }, { data: authData }] = await Promise.all([
-      supabase.schema("palpite").from("players").select("id,name,team_id,position,shirt_number,photo_url").in("team_id", [home.id, away.id]).order("name"),
+      supabase.schema("palpite").from("players").select("id,name,team_id,position,shirt_number,photo_url").eq("active", true).in("team_id", [home.id, away.id]).order("name"),
       supabase.auth.getUser(),
     ]);
     if (playersError || !authData.user) {
