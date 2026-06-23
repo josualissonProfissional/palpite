@@ -1,0 +1,175 @@
+-- Corrige a pontuacao do Time do Dia para nao punir empates.
+-- Antes: em caso de empate (ex: 2 votos, 1 em cada jogador),
+-- o criterio alfabetico decidia quem "acertava" e quem "errava".
+-- Agora: em caso de empate, todos os jogadores empatados contam como
+-- acerto para quem os escolheu.
+
+create or replace function palpite_private.finalize_best_player_daily_window(p_window_id uuid)
+returns integer
+language plpgsql
+security definer
+set search_path = palpite, public
+as $$
+declare
+  v_window palpite.best_player_voting_windows%rowtype;
+  v_ballot_count integer;
+  v_formation palpite.best_player_formation;
+  v_df integer;
+  v_mf integer;
+  v_fw integer;
+  v_slot integer := 0;
+  v_role palpite.best_player_position;
+  v_limit integer;
+  rec record;
+begin
+  select * into v_window from palpite.best_player_voting_windows
+  where id = p_window_id for update;
+  if not found or v_window.kind <> 'daily' or v_window.status = 'finalized' then return 0; end if;
+  if v_window.closes_at is null or v_window.closes_at > now() then return 0; end if;
+
+  select count(*) into v_ballot_count from palpite.best_player_ballots where window_id = p_window_id;
+  delete from palpite.best_player_results where window_id = p_window_id;
+  delete from palpite.best_player_scores where window_id = p_window_id;
+
+  if v_ballot_count < 1 then
+    update palpite.best_player_voting_windows
+    set status = 'finalized', finalized_at = now() where id = p_window_id;
+    return 0;
+  end if;
+
+  -- Se so tem 1 voto, usa a formacao dele
+  if v_ballot_count = 1 then
+    select formation into v_formation
+    from palpite.best_player_ballots where window_id = p_window_id limit 1;
+  else
+    -- Formacao mais votada entre os participantes
+    select formation into v_formation
+    from palpite.best_player_ballots where window_id = p_window_id
+    group by formation
+    order by count(*) desc,
+      case formation when '4-3-3' then 1 when '4-4-2' then 2 when '3-5-2' then 3 else 4 end
+    limit 1;
+  end if;
+
+  v_df := case v_formation when '4-3-3' then 4 when '4-4-2' then 4 when '3-5-2' then 3 else 10 end;
+  v_mf := case v_formation when '4-3-3' then 3 when '4-4-2' then 4 when '3-5-2' then 5 else 0 end;
+  v_fw := case v_formation when '4-3-3' then 3 when '4-4-2' then 2 when '3-5-2' then 2 else 0 end;
+
+  -- Candidatos com contagem de votos diarios
+  create temp table if not exists pg_temp.best_player_daily_candidates (
+    player_id uuid, selected_role palpite.best_player_position,
+    daily_votes integer, player_name text
+  ) on commit drop;
+  truncate pg_temp.best_player_daily_candidates;
+
+  insert into pg_temp.best_player_daily_candidates
+  select bp.player_id, bp.selected_role, count(*)::integer daily_votes, p.name player_name
+  from palpite.best_player_ballot_players bp
+  join palpite.best_player_ballots b on b.id = bp.ballot_id
+  join palpite.players p on p.id = bp.player_id
+  where b.window_id = p_window_id
+  group by bp.player_id, bp.selected_role, p.name;
+
+  -- Guarda o numero maximo de votos por posicao para detectar empates
+  create temp table if not exists pg_temp.best_player_max_votes (
+    selected_role palpite.best_player_position,
+    max_votes integer
+  ) on commit drop;
+  truncate pg_temp.best_player_max_votes;
+
+  insert into pg_temp.best_player_max_votes
+  select selected_role, max(daily_votes)
+  from pg_temp.best_player_daily_candidates
+  group by selected_role;
+
+  -- Seleciona os 11 mais votados respeitando posicoes
+  foreach v_role in array array['gk', 'df', 'mf', 'fw']::palpite.best_player_position[] loop
+    v_limit := case v_role when 'gk' then 1 when 'df' then v_df when 'mf' then v_mf else v_fw end;
+    if v_formation = 'free-11' and v_role <> 'gk' then
+      if v_role <> 'df' then continue; end if;
+      for rec in
+        select c.* from pg_temp.best_player_daily_candidates c
+        where c.selected_role <> 'gk'
+          and not exists (select 1 from palpite.best_player_results r where r.window_id = p_window_id and r.player_id = c.player_id)
+        order by c.daily_votes desc, c.player_name asc limit 10
+      loop
+        insert into palpite.best_player_results
+          (window_id, player_id, slot_index, selected_role, round_votes, daily_votes_tiebreak)
+        values (p_window_id, rec.player_id, v_slot, rec.selected_role, rec.daily_votes, 0);
+        v_slot := v_slot + 1;
+      end loop;
+      continue;
+    end if;
+    if v_limit = 0 then continue; end if;
+    for rec in
+      select c.* from pg_temp.best_player_daily_candidates c
+      where c.selected_role = v_role
+        and not exists (select 1 from palpite.best_player_results r where r.window_id = p_window_id and r.player_id = c.player_id)
+      order by c.daily_votes desc, c.player_name asc limit v_limit
+    loop
+      insert into palpite.best_player_results
+        (window_id, player_id, slot_index, selected_role, round_votes, daily_votes_tiebreak)
+      values (p_window_id, rec.player_id, v_slot, rec.selected_role, rec.daily_votes, 0);
+      v_slot := v_slot + 1;
+    end loop;
+  end loop;
+
+  -- NOVA LOGICA DE PONTUACAO: jogadores empatados na mesma posicao
+  -- contam como acerto para todos que os escolheram.
+  -- Ex: se 2 pessoas votaram em jogadores diferentes para a mesma posicao,
+  -- o jogador no time medio ganhou no desempate alfabetico, mas o outro
+  -- jogador empatado tambem conta como acerto (pois teve os mesmos votos).
+  insert into palpite.best_player_scores (window_id, group_id, user_id, hits, points)
+  with ballot_players as (
+    select b.user_id, bp.player_id, bp.selected_role, bp.slot_index
+    from palpite.best_player_ballots b
+    join palpite.best_player_ballot_players bp on bp.ballot_id = b.id
+    where b.window_id = p_window_id
+  ),
+  result_players as (
+    select r.player_id, r.selected_role, r.round_votes
+    from palpite.best_player_results r
+    where r.window_id = p_window_id
+  ),
+  -- Para cada jogador do bolao, verifica se ele esta no resultado
+  -- OU se empatou em votos com alguem do resultado na mesma posicao
+  scored as (
+    select
+      bp.user_id,
+      bp.player_id,
+      bp.selected_role,
+      case
+        -- Acerto direto: jogador esta no time medio
+        when exists (
+          select 1 from result_players rp
+          where rp.player_id = bp.player_id and rp.selected_role = bp.selected_role
+        ) then true
+        -- Empate: jogador teve os mesmos votos que o maximo da posicao
+        when exists (
+          select 1
+          from pg_temp.best_player_max_votes mv
+          join pg_temp.best_player_daily_candidates c
+            on c.player_id = bp.player_id and c.selected_role = bp.selected_role
+          where mv.selected_role = bp.selected_role
+            and c.daily_votes = mv.max_votes
+            and mv.max_votes > 0
+        ) then true
+        else false
+      end as is_hit
+    from ballot_players bp
+  )
+  select
+    p_window_id,
+    v_window.group_id,
+    user_id,
+    count(*) filter (where is_hit)::smallint as hits,
+    (count(*) filter (where is_hit) * v_window.points_per_hit_snapshot)::integer as points
+  from scored
+  group by user_id;
+
+  update palpite.best_player_voting_windows
+  set status = 'finalized', result_formation = v_formation, finalized_at = now()
+  where id = p_window_id;
+  return v_ballot_count;
+end;
+$$;

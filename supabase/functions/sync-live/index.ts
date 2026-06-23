@@ -1022,8 +1022,10 @@ async function syncHighlightlyMatchDetails(admin: AdminClient, now: string, seas
           : teamMatches(event.team?.name, match.away_team?.name)
             ? match.away_team_id
             : null;
-        const scorer = findExistingTeamPlayer([...homePlayers, ...awayPlayers], event.player);
-        const assist = findExistingTeamPlayer([...homePlayers, ...awayPlayers], event.assist);
+        const hlPlayerId = Number.isFinite(Number(event.playerId)) ? Number(event.playerId) : undefined;
+        const hlAssistId = Number.isFinite(Number(event.assistId)) ? Number(event.assistId) : undefined;
+        const scorer = findExistingTeamPlayer([...homePlayers, ...awayPlayers], event.player, hlPlayerId);
+        const assist = findExistingTeamPlayer([...homePlayers, ...awayPlayers], event.assist, hlAssistId);
         return {
           match_id: match.id,
           team_id: teamId,
