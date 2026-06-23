@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { LogInIcon, SparklesIcon, UsersRoundIcon } from "lucide-react";
-import { LightRays } from "@/components/palpite/light-rays";
+import { LightRays } from "@/components/palpite/lazy";
 import { TopMenubar } from "@/components/palpite/top-menubar";
 import { TrueFocus } from "@/components/palpite/true-focus";
 import { Button } from "@/components/ui/button";

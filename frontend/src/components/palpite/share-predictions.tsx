@@ -35,7 +35,7 @@ export type SharePrediction = {
   predictedAway: number;
   resultHome?: number;
   resultAway?: number;
-  matchStatus?: "live" | "scheduled" | "finished" | "locked";
+  matchStatus?: "live" | "scheduled" | "finished" | "locked" | "suspended";
   status?: "pending" | "correct" | "partial" | "wrong" | "inverse_penalty";
   points?: number;
 };

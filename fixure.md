@@ -1,1 +1,4 @@
-
+-> Adicione um sistema de notificação se existir alguma pendência o usuário recebe um pop up indicando, exemplo:
+- Se o usuário não informou ainda algum placar do dia (ele mostra a notificação de quanto tempo falta para e que ele ainda não realizou o palpite) e um botão para ele fazer isso
+- Se o usuário ainda não colocou o time do dia - mostra o tempo que falta e um botão para fazer isso
+- Se não votou no time da rodada também.

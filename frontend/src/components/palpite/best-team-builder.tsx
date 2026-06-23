@@ -18,6 +18,7 @@ import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, CircleDotIcon, GripVertic
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -106,8 +107,8 @@ function PlayerChip({ player, disabled = false, onClick }: {
       {...listeners}
       {...attributes}
     >
-      <span className="flex items-center gap-1 text-xl leading-none" aria-label={player.teamName}>
-        {countryFlag(player.teamCountry)}
+      <span className="flex items-center gap-1" aria-label={player.teamName}>
+        <Avatar size="sm" className="size-8"><AvatarImage src={player.photoUrl} alt={player.name} /><AvatarFallback>{countryFlag(player.teamCountry)}</AvatarFallback></Avatar>
         <GripVerticalIcon className="size-3.5 text-muted-foreground" />
       </span>
       <span className="line-clamp-2 min-h-9 text-xs font-extrabold leading-tight">{player.name}</span>
@@ -150,7 +151,7 @@ function FieldSlot({ slot, player, onRemove, onPick }: {
       {player ? (
         <>
           <span className="absolute -right-1 -top-1 grid size-5 place-items-center rounded-full bg-red-500 text-white"><XIcon className="size-3" /></span>
-          <span className="text-lg leading-none" aria-label={player.teamName}>{countryFlag(player.teamCountry)}</span>
+          <Avatar size="sm" className="size-7"><AvatarImage src={player.photoUrl} alt={player.name} /><AvatarFallback>{countryFlag(player.teamCountry)}</AvatarFallback></Avatar>
           <span className="line-clamp-2 text-xs font-bold text-slate-950">{player.name}</span>
           <span className="text-[10px] font-semibold uppercase text-emerald-800">{role ? positionLabels[role] : "Livre"}</span>
           <span className={`mt-0.5 rounded-full px-1.5 text-[9px] font-bold uppercase ${participation?.className}`}>

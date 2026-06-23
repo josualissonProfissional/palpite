@@ -69,13 +69,20 @@ function formatKickoff(value: string) {
   }).format(new Date(value));
 }
 
+function displayDate(value: Date) {
+  const d = new Date(value);
+  d.setHours(d.getHours() - 6);
+  return d;
+}
+
 function dateKey(value: Date) {
+  const d = displayDate(value);
   return new Intl.DateTimeFormat("en-CA", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     timeZone: "America/Recife",
-  }).format(value);
+  }).format(d);
 }
 
 function addDays(value: Date, days: number) {
@@ -85,7 +92,7 @@ function addDays(value: Date, days: number) {
 }
 
 function boardRange(filter: BoardFilter) {
-  const today = new Date();
+  const today = displayDate(new Date());
   if (filter === "yesterday") {
     const day = addDays(today, -1);
     return { from: dateKey(day), to: dateKey(day) };

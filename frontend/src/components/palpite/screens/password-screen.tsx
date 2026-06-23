@@ -3,7 +3,7 @@ import {
   PasswordRecoveryForm,
   UpdatePasswordForm,
 } from "@/components/palpite/password-recovery-form";
-import { LightRays } from "@/components/palpite/light-rays";
+import { LightRays } from "@/components/palpite/lazy";
 import { TopMenubar } from "@/components/palpite/top-menubar";
 import { NeonGradientCard } from "@/components/ui/neon-gradient-card";
 

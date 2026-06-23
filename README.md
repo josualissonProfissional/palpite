@@ -68,7 +68,15 @@ npx deno check --config supabase/functions/recalculate-scores/deno.json supabase
 
 ## Importacao Copa 2026
 
-A fonte atual para os jogos da Copa 2026 e a football-data.org:
+As fontes externas sao usadas pelo backend; a interface nunca as acessa diretamente.
+
+| Fonte | Responsabilidade na Copa 2026 | Situacao |
+| --- | --- | --- |
+| [football-data.org](https://www.football-data.org/) | Calendario, placares, status ao vivo, elenco dos times e base para calcular a classificacao dos grupos. | Fonte principal. |
+| [API-Football / API-Sports](https://www.api-football.com/) | Escalacoes (titulares e banco) de jogos finalizados quando a football-data.org nao disponibiliza as escalacoes da Copa. Tambem pode ser usada como contingencia de placar/status. | Integracao disponivel, atualmente em standby para a Copa 2026. |
+| [WorldCup26](https://worldcup26.ir/) | Contingencia de placar e status para partidas ja iniciadas que ainda estejam pendentes no banco, inclusive encerramento. | Usada somente quando houver resposta valida; nao importa eventos individuais de gol. |
+
+A `football-data.org` e a fonte atual para os jogos da Copa 2026:
 
 ```bash
 FOOTBALL_DATA_API_KEY='sua-chave' FOOTBALL_DATA_SEASON=2026 \
@@ -77,9 +85,11 @@ FOOTBALL_DATA_API_KEY='sua-chave' FOOTBALL_DATA_SEASON=2026 \
 npx supabase db query --linked --file /tmp/palpite_worldcup_2026_import.sql
 ```
 
-O script importa os jogos e calcula a classificacao dos grupos no banco.
+O script importa os jogos e calcula a classificacao dos grupos no banco. Embora a sincronizacao ao vivo solicite escalações a `football-data.org`, a cobertura da Copa nao as disponibiliza; por isso, as escalações devem vir da API-Football.
 
-Para economizar requests, a UI nunca consulta a football-data.org. Ela busca o estado inicial no Supabase e recebe atualizacoes via Realtime.
+Para ativar a importacao alternativa de escalacoes, configure `FOOTBALL_API_KEY` e deixe `API_SPORTS_STANDBY` diferente de `true`. A sincronizacao consulta `fixtures/lineups` somente para jogos finalizados que ainda nao tenham titulares suficientes registrados.
+
+Para economizar requests, a UI busca o estado inicial no Supabase e recebe atualizacoes via Realtime.
 
 ## MCP Supabase do Projeto
 

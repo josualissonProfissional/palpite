@@ -35,8 +35,11 @@ import { useLiveMatches, type LiveGoalEvent } from "@/hooks/use-live-matches";
 import { LiveBoard } from "@/components/palpite/live-board";
 import { LiveRanking } from "@/components/palpite/live-ranking";
 import { ShareGroupSummary } from "@/components/palpite/share-group-summary";
-import { SharePredictions, type SharePrediction } from "@/components/palpite/share-predictions";
+import { SharePredictions } from "@/components/palpite/lazy";
+import type { SharePrediction } from "@/components/palpite/lazy";
 import { scoreStatusLabel } from "@/lib/score-status-copy";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { countryFlag } from "@/lib/palpite-data";
 
 const exactScoreConfettiFired = new Set<string>();
 const goalAnimationMs = 4200;
@@ -59,6 +62,7 @@ const statusCopy: Record<Match["status"], string> = {
   scheduled: "Aberto",
   finished: "Finalizado",
   locked: "Bloqueado",
+  suspended: "Suspenso",
 };
 
 function isAwaitingLiveScore(match: Match) {
@@ -110,22 +114,26 @@ const livePopupStatus = {
 }>;
 
 function dateKey(value: Date | string) {
+  const d = new Date(value);
+  d.setHours(d.getHours() - 6);
   return new Intl.DateTimeFormat("en-CA", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     timeZone: "America/Recife",
-  }).format(new Date(value));
+  }).format(d);
 }
 
 function tomorrowKey() {
   const tomorrow = new Date();
+  tomorrow.setHours(tomorrow.getHours() - 6);
   tomorrow.setDate(tomorrow.getDate() + 1);
   return dateKey(tomorrow);
 }
 
 function yesterdayKey() {
   const yesterday = new Date();
+  yesterday.setHours(yesterday.getHours() - 6);
   yesterday.setDate(yesterday.getDate() - 1);
   return dateKey(yesterday);
 }
@@ -753,8 +761,8 @@ function LiveMatchFloatingPopup({ match, mode }: { match?: Match; mode: "live" |
       ? "Seu palpite ja esta pronto para este jogo."
       : "Adicione seu palpite antes da bola rolar."
     : waitingLiveScore
-      ? "A API ainda nao enviou o placar, mas o jogo ja passou do horario oficial."
-    : highlight?.description ?? visual.detail;
+      ? "O placar aparecerá aqui assim que o resultado for confirmado."
+      : highlight?.description ?? visual.detail;
   const statusBadge = !isLive
     ? hasPrediction
       ? "Salvo"
@@ -1406,15 +1414,85 @@ function MatchCard({
             onChange={setPrediction}
             disabled={isLocked}
           />
-          {match.scoreReason ? (
-            <div className="rounded-lg border bg-white/70 p-3 text-sm dark:border-white/10 dark:bg-slate-950/60">
-              <span className="font-semibold">{match.scoreReason}</span>
-              {typeof match.points === "number" ? (
-                <span className="ml-2 text-muted-foreground">
-                  {match.points > 0 ? "+" : ""}
-                  {match.points} pts
-                </span>
+          {match.goalSelections?.length ? (
+            <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 dark:border-emerald-500/20 dark:bg-emerald-950/20 relative overflow-hidden">
+              {(match.scoreStatus === "correct" || match.scoreStatus === "partial") && match.goalSelections?.some(s => s.scorerHit || s.assistHit) ? (
+                <div className="absolute inset-0 bg-gradient-to-br from-amber-400/10 via-transparent to-emerald-400/10 pointer-events-none" />
               ) : null}
+              <p className="flex items-center gap-2 text-sm font-bold text-emerald-900 dark:text-emerald-100"><CircleCheckIcon className="size-4" />Seus autores e assistências</p>
+              <div className="grid gap-2">
+                {match.goalSelections.map((selection) => {
+                  const team = selection.teamId === match.home.id ? match.home : match.away;
+                  const positions = { gk: "Goleiro", df: "Defesa", mf: "Meio-campo", fw: "Atacante" } as const;
+                  const hasFeedback = typeof selection.scorerHit === "boolean";
+                  const bothHit = hasFeedback && selection.scorerHit && selection.assistHit;
+                  const ringClass = bothHit ? "ring-amber-400 shadow-lg shadow-amber-400/20 dark:ring-amber-300 dark:shadow-amber-300/10" : hasFeedback && (selection.scorerHit || selection.assistHit) ? "ring-emerald-400 dark:ring-emerald-500" : "";
+                  return (
+                    <div key={`${selection.teamId}-${selection.goalIndex}`} className={`flex items-center gap-3 rounded-lg bg-white/80 px-3 py-2.5 text-xs dark:bg-slate-950/50 ${ringClass}`}>
+                      <Avatar className={`size-9 shrink-0 rounded-full ring-2 ${bothHit ? "ring-amber-400 dark:ring-amber-300" : hasFeedback && selection.scorerHit ? "ring-emerald-400" : "ring-emerald-200 dark:ring-emerald-500/30"}`}>
+                        <AvatarImage src={selection.scorerPhotoUrl} alt={selection.scorerName} />
+                        <AvatarFallback className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 text-[10px] font-bold">
+                          {countryFlag(team.shortName)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm">{countryFlag(team.shortName)}</span>
+                          <span className="truncate font-bold">{selection.scorerName}{selection.isOwnGoal ? " (contra)" : ""}</span>
+                          {hasFeedback ? (
+                            selection.scorerHit ? <CircleCheckIcon className="size-3.5 shrink-0 text-emerald-500" /> : <XCircleIcon className="size-3.5 shrink-0 text-red-400" />
+                          ) : null}
+                        </div>
+                        <div className="mt-1 flex items-center gap-1.5 text-muted-foreground">
+                          <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">{positions[selection.scorerPosition]}</span>
+                          <span>·</span>
+                          <span className="flex items-center gap-1">
+                            {selection.assistName ? (
+                              <>
+                                <Avatar className="size-4 rounded-full"><AvatarImage src={selection.assistPhotoUrl} alt={selection.assistName} /><AvatarFallback className="bg-slate-200 text-[8px] dark:bg-slate-700">{countryFlag(team.shortName)}</AvatarFallback></Avatar>
+                                <span className="truncate">{selection.assistName}</span>
+                                {hasFeedback ? (
+                                  selection.assistHit ? <CircleCheckIcon className="size-3 shrink-0 text-emerald-500" /> : <XCircleIcon className="size-3 shrink-0 text-red-400" />
+                                ) : null}
+                              </>
+                            ) : "Sem assistência"}
+                          </span>
+                        </div>
+                      </div>
+                      {bothHit ? <CircleCheckIcon className="size-10 shrink-0 text-amber-400 opacity-80" /> : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+          {match.scoreReason ? (
+            <div className="rounded-lg border bg-white/70 p-3 dark:border-white/10 dark:bg-slate-950/60">
+              {(typeof match.scorePoints === "number" || typeof match.goalAssistPoints === "number") ? (
+                <div className="space-y-1 text-sm">
+                  <p className="flex justify-between">
+                    <span className="text-muted-foreground">{match.scoreStatus === "correct" ? "🏆 Placar exato" : match.scoreStatus === "partial" ? "⚽ Acertou vencedor" : "Placar"}</span>
+                    <span className="font-bold tabular-nums">{match.scorePoints && match.scorePoints > 0 ? "+" : ""}{match.scorePoints ?? 0} pts</span>
+                  </p>
+                  {typeof match.goalScorerPoints === "number" && match.goalScorerPoints > 0 ? (
+                    <p className="flex justify-between"><span className="text-muted-foreground pl-3">Gols</span><span className="font-medium tabular-nums text-emerald-600">+{match.goalScorerPoints} pts</span></p>
+                  ) : null}
+                  {typeof match.goalAssistAssistPoints === "number" && match.goalAssistAssistPoints > 0 ? (
+                    <p className="flex justify-between"><span className="text-muted-foreground pl-3">Assistências</span><span className="font-medium tabular-nums text-emerald-600">+{match.goalAssistAssistPoints} pts</span></p>
+                  ) : null}
+                  <p className="flex justify-between border-t pt-1.5 mt-0.5 border-slate-200 dark:border-slate-700">
+                    <span className="font-semibold">Total</span>
+                    <span className="font-bold text-base tabular-nums">{match.points && match.points > 0 ? "+" : ""}{match.points ?? 0} pts</span>
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <span className="font-semibold">{match.scoreReason}</span>
+                  {typeof match.points === "number" ? (
+                    <span className="ml-2 text-muted-foreground">{match.points > 0 ? "+" : ""}{match.points} pts</span>
+                  ) : null}
+                </>
+              )}
             </div>
           ) : null}
           <div className="space-y-3">
@@ -1434,6 +1512,8 @@ function MatchCard({
               predictedAwayScore={prediction.away}
               matchStatus={match.status}
               scoreStatus={match.scoreStatus}
+              hasGoalSelections={Boolean(match.goalSelections?.length)}
+              hasExistingPrediction={hasPrediction}
             />
           </div>
           </CardContent>

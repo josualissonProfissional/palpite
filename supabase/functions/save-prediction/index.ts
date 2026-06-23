@@ -19,6 +19,14 @@ function requireScore(value: unknown, field: string): number {
   return value;
 }
 
+function requireGoalSelections(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) {
+    throw new HttpError(400, "goal_selections must be an array");
+  }
+
+  return value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object");
+}
+
 async function requirePredictionLockAt(
   admin: ReturnType<typeof createAdminClient>,
   groupId: string,
@@ -74,6 +82,7 @@ Deno.serve(async (req) => {
     const matchId = requireString(body.match_id, "match_id");
     const predictedHomeScore = requireScore(body.predicted_home_score, "predicted_home_score");
     const predictedAwayScore = requireScore(body.predicted_away_score, "predicted_away_score");
+    const goalSelections = requireGoalSelections(body.goal_selections);
 
     await ensureActiveMember(admin, groupId, user.id);
 
@@ -82,21 +91,17 @@ Deno.serve(async (req) => {
       throw new HttpError(423, "Prediction is locked for this match");
     }
 
-    const { data: prediction, error } = await admin
-      .from("predictions")
-      .upsert(
-        {
-          group_id: groupId,
-          user_id: user.id,
-          match_id: matchId,
-          predicted_home_score: predictedHomeScore,
-          predicted_away_score: predictedAwayScore,
-        },
-        { onConflict: "group_id,user_id,match_id" },
-      )
-      .select("id, group_id, user_id, match_id, predicted_home_score, predicted_away_score, updated_at")
-      .single();
+    const { data, error } = await admin.rpc("save_prediction_with_goal_selections", {
+      p_group_id: groupId,
+      p_user_id: user.id,
+      p_match_id: matchId,
+      p_predicted_home_score: predictedHomeScore,
+      p_predicted_away_score: predictedAwayScore,
+      p_goal_selections: goalSelections,
+    });
     if (error) throw error;
+
+    const prediction = Array.isArray(data) ? data[0] : data;
 
     return json(200, { prediction });
   } catch (error) {

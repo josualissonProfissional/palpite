@@ -43,6 +43,7 @@ export type LiveGoalEvent = {
 function toUiStatus(status: string): Match["status"] {
   if (status === "finished") return "finished";
   if (status === "live" || status === "halftime") return "live";
+  if (status === "suspended") return "suspended";
   return "scheduled";
 }
 

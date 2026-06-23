@@ -52,6 +52,7 @@ export function BestPlayersUpdateDialog({ groupSlug }: { groupSlug?: string }) {
   function dismiss() {
     if (storageKey) window.localStorage.setItem(storageKey, "seen");
     setOpen(false);
+    window.dispatchEvent(new CustomEvent("palpito:update-dismissed", { detail: updateVersion }));
   }
 
   return (

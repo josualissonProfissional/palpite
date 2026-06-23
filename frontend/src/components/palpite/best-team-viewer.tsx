@@ -1,11 +1,11 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import SoccerLineUp, { type Team } from "react-soccer-lineup";
 import { toPng } from "html-to-image";
-import { DownloadIcon, ImageIcon, PaletteIcon } from "lucide-react";
+import { CopyIcon, DownloadIcon, ImageIcon, PaletteIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -14,6 +14,7 @@ import {
   type BestPlayerFormation,
   type BestPlayerSelection,
 } from "@/lib/palpite-data";
+import { PhotoPitch } from "@/components/palpite/lazy";
 
 export type BestTeamPlayerStats = Record<string, { votes: number; percentage: number }>;
 
@@ -67,6 +68,7 @@ type BestTeamViewerProps = {
   score?: { hits: number; points: number };
   playerStats?: BestTeamPlayerStats;
   shareable?: boolean;
+  correctPlayerIds?: Set<string>;
 };
 
 export function BestTeamViewer({
@@ -79,6 +81,7 @@ export function BestTeamViewer({
   score,
   playerStats,
   shareable = true,
+  correctPlayerIds,
 }: BestTeamViewerProps) {
   const captureRef = useRef<HTMLDivElement>(null);
   const [generating, setGenerating] = useState(false);
@@ -93,34 +96,6 @@ export function BestTeamViewer({
       const player = playerById.get(selection.playerId);
       return player ? [{ selection, player, stats: playerStats?.[player.id] }] : [];
     }), [playerById, playerStats, selections]);
-  const team = useMemo<Team>(() => {
-    const squad: Team["squad"] = { df: [], cm: [], fw: [] };
-    for (const { selection, player, stats } of selectedPlayers) {
-      const statsLabel = stats ? ` · ${stats.votes}v · ${formatPercentage(stats.percentage)}%` : "";
-      const item = {
-        name: `${countryFlag(player.teamCountry)} ${player.name}${statsLabel}`,
-        number: player.shirtNumber,
-      };
-      if (selection.selectedRole === "gk") squad.gk = item;
-      else if (selection.selectedRole === "df") squad.df!.push(item);
-      else if (selection.selectedRole === "mf") squad.cm!.push(item);
-      else squad.fw!.push(item);
-    }
-    return {
-      squad,
-      style: {
-        color: "#f8fafc",
-        borderColor: theme.accent,
-        numberColor: "#0f172a",
-        nameColor: "#0f172a",
-        numberBackgroundColor: theme.accent,
-        nameBackgroundColor: "rgba(255,255,255,.94)",
-        nameOverflow: "ellipsis",
-        nameSize: 11,
-        size: "medium",
-      },
-    };
-  }, [selectedPlayers, theme.accent]);
 
   async function handleImage() {
     if (!captureRef.current) return;
@@ -135,6 +110,26 @@ export function BestTeamViewer({
       toast.error("Não foi possível gerar a imagem deste time.");
     } finally {
       setGenerating(false);
+    }
+  }
+  function buildShareText() {
+    const roleLabels: Record<string, string> = { gk: "GOL", df: "DEF", mf: "MEI", fw: "ATA" };
+    const sorted = [...selections].sort((a, b) => a.slotIndex - b.slotIndex);
+    const lines = sorted.flatMap((s) => {
+      const p = playerById.get(s.playerId);
+      return p ? [`${countryFlag(p.teamCountry)} ${p.name} (${roleLabels[s.selectedRole] ?? s.selectedRole})`] : [];
+    });
+    const header = `${customTitle}${ownerName ? ` — ${ownerName}` : ""}`;
+    const meta = [`Formação: ${formation}`, subtitle ? `Data: ${subtitle}` : null, score ? `${score.hits} acertos · ${score.points} pts` : null].filter(Boolean).join(" · ");
+    return [header, meta, "", ...lines, "", "Montado no Palpitô ✦ palpitô.shop"].join("\n");
+  }
+
+  async function handleCopyText() {
+    try {
+      await navigator.clipboard.writeText(buildShareText());
+      toast.success("Time copiado!");
+    } catch {
+      toast.error("Não foi possível copiar o texto.");
     }
   }
 
@@ -184,13 +179,15 @@ export function BestTeamViewer({
             </div>
           ) : null}
         </div>
-        <div className="mx-auto max-w-3xl overflow-hidden rounded-2xl border-2 bg-black/10 p-1" style={{ borderColor: theme.accent }}>
-          <SoccerLineUp
-            size="responsive"
-            orientation="vertical"
-            color={theme.pitch}
-            pattern="lines"
-            homeTeam={team}
+        <div className="mx-auto max-w-sm overflow-hidden rounded-2xl border-2 bg-black/10 p-2" style={{ borderColor: theme.accent }}>
+          <PhotoPitch
+            formation={formation}
+            players={players}
+            selections={selections}
+            pitchColor={theme.pitch}
+            accentColor={theme.accent}
+            correctPlayerIds={correctPlayerIds}
+            playerStats={playerStats}
           />
         </div>
 
@@ -198,7 +195,7 @@ export function BestTeamViewer({
           {selectedPlayers.map(({ selection, player, stats }) => (
             <div key={`${selection.slotIndex}-${player.id}`} className="rounded-xl border bg-white/90 p-2 text-slate-950 shadow-sm">
               <div className="flex items-start gap-2">
-                <span className="text-xl leading-none" aria-label={player.teamName}>{countryFlag(player.teamCountry)}</span>
+                <Avatar size="sm" className="size-8"><AvatarImage src={player.photoUrl} alt={player.name} /><AvatarFallback>{countryFlag(player.teamCountry)}</AvatarFallback></Avatar>
                 <div className="min-w-0">
                   <div className="truncate text-xs font-black">{player.name}</div>
                   <div className="truncate text-[10px] font-semibold text-slate-500">{player.teamName}</div>
@@ -217,10 +214,16 @@ export function BestTeamViewer({
         </div>
       </div>
       {shareable ? (
-        <Button variant="outline" onClick={handleImage} disabled={generating || !customTitle.trim()}>
-          {generating ? <DownloadIcon className="animate-pulse" /> : <ImageIcon />}
-          {generating ? "Gerando imagem..." : "Gerar imagem"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={handleImage} disabled={generating || !customTitle.trim()}>
+            {generating ? <DownloadIcon className="animate-pulse" /> : <ImageIcon />}
+            {generating ? "Gerando imagem..." : "Gerar imagem"}
+          </Button>
+          <Button variant="outline" onClick={handleCopyText} disabled={!customTitle.trim()}>
+            <CopyIcon />
+            Copiar texto
+          </Button>
+        </div>
       ) : null}
     </div>
   );

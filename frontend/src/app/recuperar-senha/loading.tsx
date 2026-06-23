@@ -1,5 +1,5 @@
-import { RouteLoadingScreen } from "@/components/palpite/backend-loading";
+import { AppLoadingScreen } from "@/components/palpite/app-loading";
 
 export default function RecoverPasswordLoading() {
-  return <RouteLoadingScreen label="Preparando recuperacao..." />;
+  return <AppLoadingScreen label="Preparando recuperação..." />;
 }

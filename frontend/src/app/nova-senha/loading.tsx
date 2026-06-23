@@ -1,5 +1,5 @@
-import { RouteLoadingScreen } from "@/components/palpite/backend-loading";
+import { AppLoadingScreen } from "@/components/palpite/app-loading";
 
 export default function NewPasswordLoading() {
-  return <RouteLoadingScreen label="Preparando nova senha..." />;
+  return <AppLoadingScreen label="Preparando nova senha..." />;
 }

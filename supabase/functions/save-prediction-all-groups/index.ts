@@ -32,6 +32,14 @@ function requireScore(value: unknown, field: string): number {
   return value;
 }
 
+function requireGoalSelections(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) {
+    throw new HttpError(400, "goal_selections must be an array");
+  }
+
+  return value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object");
+}
+
 async function requirePredictionLockAt(
   admin: ReturnType<typeof createAdminClient>,
   groupId: string,
@@ -92,6 +100,8 @@ Deno.serve(async (req) => {
     const predictedHomeScore = requireScore(body.predicted_home_score, "predicted_home_score");
     const predictedAwayScore = requireScore(body.predicted_away_score, "predicted_away_score");
     const resolveConflict = body.resolve_conflict === true;
+    const hasGoalSelections = Object.prototype.hasOwnProperty.call(body, "goal_selections");
+    const goalSelections = hasGoalSelections ? requireGoalSelections(body.goal_selections) : null;
 
     const { data: activeGroupsData, error: activeGroupsError } = await admin
       .from("group_members")
@@ -169,23 +179,39 @@ Deno.serve(async (req) => {
       throw new HttpError(423, `Palpite bloqueado em: ${names}`);
     }
 
-    const rows = groupIds.map((targetGroupId) => ({
-      group_id: targetGroupId,
-      user_id: user.id,
-      match_id: matchId,
-      predicted_home_score: predictedHomeScore,
-      predicted_away_score: predictedAwayScore,
-    }));
-
-    const { data: predictions, error } = await admin
-      .from("predictions")
-      .upsert(rows, { onConflict: "group_id,user_id,match_id" })
-      .select("id, group_id, user_id, match_id, predicted_home_score, predicted_away_score, updated_at");
-
-    if (error) throw error;
+    let saved = groupIds.length;
+    if (goalSelections) {
+      const results = await Promise.all(
+        groupIds.map((targetGroupId) => admin.rpc("save_prediction_with_goal_selections", {
+          p_group_id: targetGroupId,
+          p_user_id: user.id,
+          p_match_id: matchId,
+          p_predicted_home_score: predictedHomeScore,
+          p_predicted_away_score: predictedAwayScore,
+          p_goal_selections: goalSelections,
+        })),
+      );
+      const failed = results.find((result) => result.error);
+      if (failed?.error) throw failed.error;
+      saved = results.length;
+    } else {
+      const rows = groupIds.map((targetGroupId) => ({
+        group_id: targetGroupId,
+        user_id: user.id,
+        match_id: matchId,
+        predicted_home_score: predictedHomeScore,
+        predicted_away_score: predictedAwayScore,
+      }));
+      const { data: predictions, error } = await admin
+        .from("predictions")
+        .upsert(rows, { onConflict: "group_id,user_id,match_id" })
+        .select("id");
+      if (error) throw error;
+      saved = predictions?.length ?? rows.length;
+    }
 
     return json(200, {
-      saved: predictions?.length ?? rows.length,
+      saved,
       total: activeGroups.length,
       prediction: {
         match_id: matchId,

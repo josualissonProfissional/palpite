@@ -28,7 +28,7 @@ export type Match = {
   date: string;
   dateTime: string;
   venue: string;
-  status: "live" | "scheduled" | "finished" | "locked";
+  status: "live" | "scheduled" | "finished" | "locked" | "suspended";
   homeScore?: number;
   awayScore?: number;
   predictedHome?: number;
@@ -37,7 +37,25 @@ export type Match = {
   scoreReason?: string;
   points?: number;
   isFinalScore?: boolean;
+  scorePoints?: number;
+  goalAssistPoints?: number;
+  goalScorerPoints?: number;
+  goalAssistAssistPoints?: number;
   lockLabel: string;
+  goalSelections?: GoalPredictionSelection[];
+};
+
+export type GoalPredictionSelection = {
+  teamId: string;
+  goalIndex: number;
+  isOwnGoal: boolean;
+  scorerName: string;
+  scorerPhotoUrl?: string;
+  scorerPosition: BestPlayerPosition;
+  assistName?: string;
+  assistPhotoUrl?: string;
+  scorerHit?: boolean;
+  assistHit?: boolean;
 };
 
 export type RankingRow = {
@@ -79,6 +97,9 @@ export type ScoringRules = {
   lockPredictionMinutesBefore: number;
   showPredictionsBeforeLock: boolean;
   showPredictionsAfterLock: boolean;
+  goalScorerPoints: number;
+  goalAssistPoints: number;
+  goalAssistScoringMode: "separate" | "pair_only";
 };
 
 export type BestPlayerPosition = "gk" | "df" | "mf" | "fw";
@@ -104,6 +125,7 @@ export type BestPlayer = {
   teamName: string;
   teamCountry?: string;
   teamLogoUrl?: string;
+  photoUrl?: string;
   participationStatus: "starter" | "bench" | "unknown";
 };
 
@@ -126,6 +148,21 @@ export type BestPlayerWindow = {
   allowEdit: boolean;
   respectPosition: boolean;
   resultFormation?: BestPlayerFormation;
+  pendingMatch?: {
+    homeName: string;
+    awayName: string;
+    matchDate: string;
+  };
+};
+
+export type PendingAction = {
+  id: string;
+  kind: "prediction" | "daily_team" | "round_team";
+  title: string;
+  description: string;
+  deadline: string;
+  href: string;
+  buttonLabel: string;
 };
 
 export type GroupSummary = {

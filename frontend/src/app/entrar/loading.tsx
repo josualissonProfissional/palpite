@@ -1,5 +1,5 @@
-import { RouteLoadingScreen } from "@/components/palpite/backend-loading";
+import { AppLoadingScreen } from "@/components/palpite/app-loading";
 
 export default function LoginLoading() {
-  return <RouteLoadingScreen label="Preparando login..." />;
+  return <AppLoadingScreen label="Preparando login..." />;
 }

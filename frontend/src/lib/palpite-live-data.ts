@@ -9,6 +9,7 @@ import {
   type GroupSummary,
   type Match,
   type Member,
+  type PendingAction,
   type RankingRow,
   type ScoringRules,
   type Standing,
@@ -28,6 +29,7 @@ type BestPlayerDbWindow = {
   allow_edit_snapshot: boolean;
   respect_position_snapshot: boolean;
   result_formation: BestPlayerFormation | null;
+  group_id: string;
 };
 
 type BestPlayerDbRow = {
@@ -35,6 +37,7 @@ type BestPlayerDbRow = {
   name: string;
   position: BestPlayer["position"];
   shirt_number: number | null;
+  photo_url: string | null;
   team_id: string;
   team: { name: string; country: string | null; logo_url: string | null } | null;
 };
@@ -45,6 +48,7 @@ function toBestPlayer(row: BestPlayerDbRow, participationStatus: BestPlayer["par
     name: row.name,
     position: row.position,
     shirtNumber: row.shirt_number ?? undefined,
+    photoUrl: row.photo_url ?? undefined,
     teamId: row.team_id,
     teamName: row.team?.name ?? "Seleção",
     teamCountry: row.team?.country ?? undefined,
@@ -89,14 +93,26 @@ type MatchRow = {
 };
 
 type PredictionRow = {
+  id: string;
   match_id: string;
   predicted_home_score: number;
   predicted_away_score: number;
 };
 
+type GoalSelectionRow = {
+  prediction_id: string;
+  team_id: string;
+  goal_index: number;
+  is_own_goal: boolean;
+  scorer: { name: string; position: BestPlayer["position"]; photo_url: string | null } | null;
+  assist: { name: string; photo_url: string | null } | null;
+};
+
 type PredictionScoreRow = {
   match_id: string;
   points: number;
+  score_points: number;
+  goal_assist_points: number;
   status: Match["scoreStatus"];
   score_reason: string | null;
   is_final: boolean;
@@ -178,6 +194,9 @@ type ScoringRulesRow = {
   lock_prediction_minutes_before: number;
   show_predictions_before_lock: boolean;
   show_predictions_after_lock: boolean;
+  goal_scorer_points: number;
+  goal_assist_points: number;
+  goal_assist_scoring_mode: ScoringRules["goalAssistScoringMode"];
 };
 
 export function hasSupabaseEnv() {
@@ -210,6 +229,7 @@ function toTeam(row: TeamRow | null, groupName?: string | null): Team {
 function toUiStatus(status: string): Match["status"] {
   if (status === "finished") return "finished";
   if (status === "live" || status === "halftime") return "live";
+  if (status === "suspended") return "suspended";
   return "scheduled";
 }
 
@@ -342,13 +362,13 @@ export async function getGroupWorldCupData(groupId?: string) {
   const [predictionsResponse, scoresResponse] = await Promise.all([
     db
       .from("predictions")
-      .select("match_id, predicted_home_score, predicted_away_score")
+      .select("id, match_id, predicted_home_score, predicted_away_score")
       .eq("group_id", groupId)
       .eq("user_id", user.id)
       .in("match_id", matchIds),
     db
       .from("prediction_scores")
-      .select("match_id, points, status, score_reason, is_final")
+      .select("match_id, points, score_points, goal_assist_points, status, score_reason, is_final")
       .eq("group_id", groupId)
       .eq("user_id", user.id)
       .in("match_id", matchIds),
@@ -357,23 +377,78 @@ export async function getGroupWorldCupData(groupId?: string) {
   const predictions = new Map(
     ((predictionsResponse.data ?? []) as PredictionRow[]).map((row) => [row.match_id, row])
   );
+  const predictionRows = (predictionsResponse.data ?? []) as PredictionRow[];
+    const { data: goalSelectionData } = predictionRows.length > 0
+      ? await db.from("prediction_goal_selections")
+          .select("prediction_id,team_id,goal_index,is_own_goal,scorer:scorer_player_id(name,position,photo_url),assist:assist_player_id(name,photo_url)")
+          .in("prediction_id", predictionRows.map((row) => row.id))
+          .order("goal_index")
+      : { data: [] };
+  const goalsByPredictionId = new Map<string, GoalSelectionRow[]>();
+  for (const row of (goalSelectionData ?? []) as unknown as GoalSelectionRow[]) {
+    const current = goalsByPredictionId.get(row.prediction_id) ?? [];
+    current.push(row);
+    goalsByPredictionId.set(row.prediction_id, current);
+  }
   const scores = new Map(
     ((scoresResponse.data ?? []) as PredictionScoreRow[]).map((row) => [row.match_id, row])
   );
+
+  // Fetch goal-by-goal feedback for matches with selections
+  const goalFeedbackByMatch = new Map<string, Map<number, { scorerHit: boolean; assistHit: boolean; scorerPoints: number; assistPoints: number }>>();
+  for (const [matchId, prediction] of predictions) {
+    if (!goalsByPredictionId.has(prediction.id)) continue;
+    const { data: feedbackData } = await db.rpc("get_goal_feedback", {
+      p_match_id: matchId,
+      p_user_id: user.id,
+    });
+    if (feedbackData) {
+      const feedbackMap = new Map<number, { scorerHit: boolean; assistHit: boolean; scorerPoints: number; assistPoints: number }>();
+      for (const row of feedbackData as any[]) {
+        feedbackMap.set(row.goal_index, { scorerHit: row.scorer_hit, assistHit: row.assist_hit, scorerPoints: Number(row.scorer_points ?? 0), assistPoints: Number(row.assist_points ?? 0) });
+      }
+      goalFeedbackByMatch.set(matchId, feedbackMap);
+    }
+  }
 
   return {
     ...worldCup,
     matches: worldCup.matches.map((match) => {
       const prediction = predictions.get(match.id);
       const score = scores.get(match.id);
+      const feedbackMap = goalFeedbackByMatch.get(match.id);
+      let goalScorerPoints = 0;
+      let goalAssistAssistPoints = 0;
+      if (feedbackMap) {
+        for (const fb of feedbackMap.values()) {
+          goalScorerPoints += fb.scorerPoints;
+          goalAssistAssistPoints += fb.assistPoints;
+        }
+      }
       return {
         ...match,
         predictedHome: prediction?.predicted_home_score,
         predictedAway: prediction?.predicted_away_score,
+        goalSelections: prediction ? (goalsByPredictionId.get(prediction.id) ?? []).map((selection) => ({
+          teamId: selection.team_id,
+          goalIndex: selection.goal_index,
+          isOwnGoal: selection.is_own_goal,
+          scorerName: selection.scorer?.name ?? "Jogador",
+          scorerPhotoUrl: selection.scorer?.photo_url ?? undefined,
+          scorerPosition: selection.scorer?.position ?? "fw",
+          assistName: selection.assist?.name ?? undefined,
+          assistPhotoUrl: selection.assist?.photo_url ?? undefined,
+          scorerHit: goalFeedbackByMatch.get(match.id)?.get(selection.goal_index)?.scorerHit,
+          assistHit: goalFeedbackByMatch.get(match.id)?.get(selection.goal_index)?.assistHit,
+        })) : [],
         scoreStatus: score?.status,
         scoreReason: score?.score_reason ?? undefined,
         points: score?.points,
         isFinalScore: score?.is_final,
+        scorePoints: score?.score_points,
+        goalAssistPoints: score?.goal_assist_points,
+        goalScorerPoints,
+        goalAssistAssistPoints,
       };
     }),
   };
@@ -468,6 +543,116 @@ export async function getGroupData(slug: string) {
   };
 }
 
+function recifeDateKey(value: Date | string) {
+  return new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: "America/Recife",
+  }).format(new Date(value));
+}
+
+export async function getPendingActions(groupSlug?: string): Promise<PendingAction[]> {
+  if (!hasSupabaseEnv() || !groupSlug) return [];
+
+  try {
+    const supabase = await createClient();
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) return [];
+
+    const db = supabase.schema("palpite");
+    const { data: group } = await db.from("groups")
+      .select("id,competition_id")
+      .eq("slug", groupSlug)
+      .maybeSingle();
+    if (!group?.id || !group.competition_id) return [];
+
+    const now = Date.now();
+    const today = recifeDateKey(new Date(now));
+    const [{ data: rules }, { data: matchRows }, { data: windowRows }] = await Promise.all([
+      db.from("scoring_rules")
+        .select("lock_prediction_minutes_before")
+        .eq("group_id", group.id)
+        .maybeSingle(),
+      db.from("matches")
+        .select("id,match_date,status")
+        .eq("competition_id", group.competition_id)
+        .eq("status", "scheduled")
+        .order("match_date"),
+      db.from("best_player_voting_windows")
+        .select("id,kind,closes_at,status")
+        .eq("group_id", group.id)
+        .eq("status", "open")
+        .order("closes_at"),
+    ]);
+
+    const lockMinutes = Number(rules?.lock_prediction_minutes_before ?? 10);
+    const todayMatches = (matchRows ?? []).filter((match) => {
+      const deadline = new Date(match.match_date).getTime() - lockMinutes * 60_000;
+      return recifeDateKey(match.match_date) === today && deadline > now;
+    });
+    const { data: predictions } = todayMatches.length > 0
+      ? await db.from("predictions")
+        .select("match_id")
+        .eq("group_id", group.id)
+        .eq("user_id", authData.user.id)
+        .in("match_id", todayMatches.map((match) => match.id))
+      : { data: [] };
+    const predictedMatchIds = new Set((predictions ?? []).map((prediction) => prediction.match_id));
+    const missingMatches = todayMatches.filter((match) => !predictedMatchIds.has(match.id));
+
+    const openWindows = (windowRows ?? []).filter((window) =>
+      window.closes_at && new Date(window.closes_at).getTime() > now
+    );
+    const { data: ballots } = openWindows.length > 0
+      ? await db.from("best_player_ballots")
+        .select("window_id")
+        .eq("user_id", authData.user.id)
+        .in("window_id", openWindows.map((window) => window.id))
+      : { data: [] };
+    const votedWindowIds = new Set((ballots ?? []).map((ballot) => ballot.window_id));
+
+    const actions: PendingAction[] = [];
+    if (missingMatches.length > 0) {
+      const firstMatch = missingMatches[0];
+      const deadline = new Date(
+        new Date(firstMatch.match_date).getTime() - lockMinutes * 60_000,
+      ).toISOString();
+      actions.push({
+        id: `prediction-${today}`,
+        kind: "prediction",
+        title: missingMatches.length === 1
+          ? "Falta 1 palpite de hoje"
+          : `Faltam ${missingMatches.length} palpites de hoje`,
+        description: "Informe o placar antes do primeiro jogo pendente ser bloqueado.",
+        deadline,
+        href: `/app/grupos/${groupSlug}#match-${firstMatch.id}`,
+        buttonLabel: missingMatches.length === 1 ? "Fazer palpite" : "Fazer palpites",
+      });
+    }
+
+    for (const window of openWindows) {
+      if (!window.closes_at || votedWindowIds.has(window.id)) continue;
+      const isDaily = window.kind === "daily";
+      actions.push({
+        id: `${window.kind}-${window.id}`,
+        kind: isDaily ? "daily_team" : "round_team",
+        title: isDaily ? "Seu Time do Dia está pendente" : "Seu Time da Rodada está pendente",
+        description: isDaily
+          ? "Escolha 11 jogadores antes do encerramento da votação do dia."
+          : "Monte sua seleção da rodada antes do encerramento da votação.",
+        deadline: window.closes_at,
+        href: `/app/grupos/${groupSlug}/times?tab=${isDaily ? "daily" : "round"}`,
+        buttonLabel: isDaily ? "Montar Time do Dia" : "Montar Time da Rodada",
+      });
+    }
+
+    return actions.sort((a, b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime());
+  } catch {
+    return [];
+  }
+}
+
 export async function getMembers(groupId?: string) {
   if (!hasSupabaseEnv() || !groupId) return [] as Member[];
 
@@ -510,7 +695,7 @@ export async function getScoringRules(groupId?: string): Promise<ScoringRules | 
     .schema("palpite")
     .from("scoring_rules")
     .select(
-      "exact_score_points, correct_winner_points, correct_draw_points, correct_goal_home_points, correct_goal_away_points, wrong_prediction_points, inverse_score_policy, inverse_score_penalty, allow_negative_score, lock_prediction_minutes_before, show_predictions_before_lock, show_predictions_after_lock"
+      "exact_score_points, correct_winner_points, correct_draw_points, correct_goal_home_points, correct_goal_away_points, wrong_prediction_points, inverse_score_policy, inverse_score_penalty, allow_negative_score, lock_prediction_minutes_before, show_predictions_before_lock, show_predictions_after_lock, goal_scorer_points, goal_assist_points, goal_assist_scoring_mode"
     )
     .eq("group_id", groupId)
     .maybeSingle();
@@ -530,6 +715,9 @@ export async function getScoringRules(groupId?: string): Promise<ScoringRules | 
     lockPredictionMinutesBefore: row.lock_prediction_minutes_before,
     showPredictionsBeforeLock: row.show_predictions_before_lock,
     showPredictionsAfterLock: row.show_predictions_after_lock,
+    goalScorerPoints: row.goal_scorer_points,
+    goalAssistPoints: row.goal_assist_points,
+    goalAssistScoringMode: row.goal_assist_scoring_mode,
   };
 }
 
@@ -557,6 +745,7 @@ export type BestPlayerGroupTeam = {
 export type BestPlayerPageData = {
   rules: BestPlayerRules;
   dailyWindow: BestPlayerWindow | null;
+  dailyPendingMatch?: BestPlayerWindow["pendingMatch"];
   roundWindow: BestPlayerWindow | null;
   dailyPlayers: BestPlayer[];
   roundPlayers: BestPlayer[];
@@ -565,7 +754,20 @@ export type BestPlayerPageData = {
   result: BestPlayerResultRow[];
   score: { hits: number; points: number } | null;
   roundBallotCount: number;
+  dailyResult: BestPlayerResultRow[];
+  dailyScore: { hits: number; points: number } | null;
+  dailyBallotCount: number;
+  dailyGroupTeams: BestPlayerGroupTeam[];
   groupTeams: BestPlayerGroupTeam[];
+  lastFinalizedDaily: {
+    window: BestPlayerWindow;
+    result: BestPlayerResultRow[];
+    score: { hits: number; points: number } | null;
+    ballotCount: number;
+    allPlayers: BestPlayer[];
+    groupTeams: BestPlayerGroupTeam[];
+  } | null;
+  lastFinalizedDailyJson: string | null;
 };
 
 const defaultBestPlayerRules: BestPlayerRules = {
@@ -583,6 +785,7 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
   const empty: BestPlayerPageData = {
     rules: defaultBestPlayerRules,
     dailyWindow: null,
+    dailyPendingMatch: undefined,
     roundWindow: null,
     dailyPlayers: [],
     roundPlayers: [],
@@ -592,8 +795,15 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
     score: null,
     roundBallotCount: 0,
     groupTeams: [],
+    dailyResult: [],
+    dailyScore: null,
+    dailyBallotCount: 0,
+    dailyGroupTeams: [],
+    lastFinalizedDaily: null,
+    lastFinalizedDailyJson: null,
   };
   if (!hasSupabaseEnv() || !groupId) return empty;
+
 
   const supabase = await createClient();
   const { data: authData } = await supabase.auth.getUser();
@@ -602,7 +812,7 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
   const [rulesResponse, windowsResponse] = await Promise.all([
     db.from("best_player_rules").select("*").eq("group_id", groupId).maybeSingle(),
     db.from("best_player_voting_windows")
-      .select("id,kind,vote_date,round_name,status,opened_at,closes_at,duration_minutes,eligibility_source,allow_edit_snapshot,respect_position_snapshot,result_formation")
+      .select("id,kind,vote_date,round_name,status,opened_at,closes_at,duration_minutes,eligibility_source,allow_edit_snapshot,respect_position_snapshot,result_formation,group_id")
       .eq("group_id", groupId)
       .order("created_at", { ascending: false }),
   ]);
@@ -627,6 +837,37 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
     .filter((window) => window.kind === kind)
     .sort((a, b) => statusWeight[a.status] - statusWeight[b.status])[0] ?? null;
   const dailyRow = chooseWindow("daily");
+
+  // Forca janelas "open" com closes_at expirado como "closed" para que a UI
+  // trave a escalacao imediatamente, sem esperar o proximo sync-live rodar.
+  const now = new Date().toISOString();
+  function effectiveStatus(window: BestPlayerDbWindow | null): BestPlayerWindow["status"] {
+    if (!window) return "cancelled";
+    if (window.status === "open" && window.closes_at && window.closes_at <= now) return "closed";
+    return window.status;
+  }
+  let dailyPendingMatch: BestPlayerWindow["pendingMatch"] = undefined;
+  if (dailyRow?.status === "scheduled") {
+    const { data: pendingMatches } = await db.from("best_player_window_matches")
+      .select("match_id").eq("window_id", dailyRow.id);
+    const pendingIds = (pendingMatches ?? []).map((row) => row.match_id);
+    if (pendingIds.length > 0) {
+      const { data: matchData } = await db.from("matches")
+        .select("match_date, home_team:home_team_id(name), away_team:away_team_id(name)")
+        .in("id", pendingIds)
+        .not("status", "in", '("finished","cancelled","postponed")')
+        .order("match_date")
+        .limit(1);
+      if (matchData?.[0]) {
+        const row = matchData[0] as any;
+        dailyPendingMatch = {
+          homeName: row.home_team?.name ?? "Mandante",
+          awayName: row.away_team?.name ?? "Visitante",
+          matchDate: row.match_date,
+        };
+      }
+    }
+  }
   const roundRow = chooseWindow("round");
 
   async function loadVote(windowId?: string | null): Promise<BestPlayerLoadedVote | null> {
@@ -650,7 +891,7 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
     if (ids.length === 0) return [];
     const uniqueIds = Array.from(new Set(ids));
     const { data } = await db.from("players")
-      .select("id,name,position,shirt_number,team_id,team:team_id(name,country,logo_url)")
+      .select("id,name,position,shirt_number,photo_url,team_id,team:team_id(name,country,logo_url)")
       .in("id", uniqueIds).order("name");
     const statusByPlayerId = new Map<string, BestPlayer["participationStatus"]>();
     if (matchIds.length > 0) {
@@ -785,11 +1026,221 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
     }).sort((a, b) => b.points - a.points || a.displayName.localeCompare(b.displayName, "pt-BR"));
   }
 
+
+  let dailyResult: BestPlayerResultRow[] = [];
+  let dailyScore: BestPlayerPageData["score"] = null;
+  let dailyBallotCount = 0;
+  let dailyGroupTeams: BestPlayerGroupTeam[] = [];
+  if (dailyRow?.status === "finalized") {
+    const dailyMatchIds = await db.from("best_player_window_matches")
+      .select("match_id").eq("window_id", dailyRow.id);
+    const dailyMatchIdList = (dailyMatchIds.data ?? []).map((row: { match_id: string }) => row.match_id);
+    const [
+      { data: dailyResultRows },
+      { data: dailyScoreRow },
+      { data: dailyBallotRows },
+      { data: dailyScoreRows },
+    ] = await Promise.all([
+      db.from("best_player_results")
+        .select("player_id,slot_index,selected_role,round_votes,daily_votes_tiebreak")
+        .eq("window_id", dailyRow.id).order("slot_index"),
+      db.from("best_player_scores")
+        .select("hits,points").eq("window_id", dailyRow.id).eq("user_id", authData.user.id).maybeSingle(),
+      db.from("best_player_ballots")
+        .select("id,user_id,formation").eq("window_id", dailyRow.id).order("submitted_at"),
+      db.from("best_player_scores")
+        .select("user_id,hits,points").eq("window_id", dailyRow.id),
+    ]);
+    dailyBallotCount = (dailyScoreRows as unknown as Array<{user_id: string}> ?? []).length || (dailyBallotRows as unknown as Array<{id: string}> ?? []).length || 0;
+    const dailyBallotIdList = ((dailyBallotRows ?? []) as unknown as Array<{id: string; user_id: string}>).map((b) => b.id);
+    const dailyUserIdList = ((dailyBallotRows ?? []) as unknown as Array<{user_id: string}>).map((b) => b.user_id);
+    const [
+      { data: dailyAllSelections },
+      { data: dailyProfiles },
+    ] = await Promise.all([
+      dailyBallotIdList.length > 0
+        ? db.from("best_player_ballot_players")
+          .select("ballot_id,player_id,slot_index,selected_role").in("ballot_id", dailyBallotIdList).order("slot_index")
+        : Promise.resolve({ data: [] }),
+      dailyUserIdList.length > 0
+        ? db.from("profiles").select("id,full_name,nickname,avatar_url").in("id", dailyUserIdList)
+        : Promise.resolve({ data: [] }),
+    ]);
+    const dailySharedPlayerIds = ((dailyAllSelections ?? []) as unknown as Array<{player_id: string}>).map((s) => s.player_id);
+    const dailyResultPlayers = await loadPlayers(
+      [...((dailyResultRows ?? []) as unknown as Array<{player_id: string}>).map((r) => r.player_id), ...dailySharedPlayerIds],
+      dailyMatchIdList,
+    );
+    const dailyById = new Map(dailyResultPlayers.map((p) => [p.id, p]));
+    dailyResult = ((dailyResultRows ?? []) as unknown as Array<{
+      player_id: string;
+      slot_index: number;
+      selected_role: string;
+      round_votes: number;
+      daily_votes_tiebreak: number;
+    }>).flatMap((row) => {
+      const player = dailyById.get(row.player_id);
+      return player ? [{
+        playerId: row.player_id,
+        slotIndex: row.slot_index,
+        selectedRole: row.selected_role as BestPlayerSelection["selectedRole"],
+        player,
+        roundVotes: row.round_votes,
+        dailyVotesTiebreak: row.daily_votes_tiebreak,
+      }] : [];
+    });
+    dailyScore = dailyScoreRow ? { hits: (dailyScoreRow as {hits: number; points: number}).hits, points: (dailyScoreRow as {hits: number; points: number}).points } : null;
+    const dailyProfileById = new Map(((dailyProfiles ?? []) as unknown as Array<{id: string; full_name?: string; nickname?: string; avatar_url?: string}>).map((p) => [p.id, p]));
+    const dailyScoreByUserId = new Map(((dailyScoreRows ?? []) as unknown as Array<{user_id: string; hits: number; points: number}>).map((s) => [s.user_id, s]));
+    const dailySelectionsByBallotId = new Map<string, BestPlayerSelection[]>();
+    for (const s of ((dailyAllSelections ?? []) as unknown as Array<{ballot_id: string; player_id: string; slot_index: number; selected_role: string}>)) {
+      const current = dailySelectionsByBallotId.get(s.ballot_id) ?? [];
+      current.push({ playerId: s.player_id, slotIndex: s.slot_index, selectedRole: s.selected_role as BestPlayerSelection["selectedRole"] });
+      dailySelectionsByBallotId.set(s.ballot_id, current);
+    }
+    dailyGroupTeams = ((dailyBallotRows ?? []) as unknown as Array<{id: string; user_id: string; formation: string}>).map((ballot) => {
+      const profile = dailyProfileById.get(ballot.user_id);
+      const userScore = dailyScoreByUserId.get(ballot.user_id);
+      return {
+        userId: ballot.user_id,
+        displayName: profile?.full_name || profile?.nickname || "Participante",
+        avatarUrl: profile?.avatar_url ?? undefined,
+        formation: ballot.formation as BestPlayerFormation,
+        selections: dailySelectionsByBallotId.get(ballot.id) ?? [],
+        hits: userScore?.hits ?? 0,
+        points: userScore?.points ?? 0,
+      };
+    }).sort((a, b) => b.points - a.points || a.displayName.localeCompare(b.displayName, "pt-BR"));
+  }
+
+
+  let lastFinalizedDaily: BestPlayerPageData["lastFinalizedDaily"] = null;
+  let lastFinalizedDailyJson: string | null = null;
+  const finalizedDaily = windows.find(
+    (w) => w.kind === "daily" && w.status === "finalized" && w.id !== dailyRow?.id
+  ) ?? windows.find(
+    (w) => w.kind === "daily" && w.status === "closed" && w.id !== dailyRow?.id
+  );
+  if (finalizedDaily) {
+    const lastWin = toBestPlayerWindow(finalizedDaily);
+    const [
+      { data: lastResultRows },
+      { data: lastScoreRow },
+      { data: lastBallotRows },
+      { data: lastScoreRows },
+    ] = await Promise.all([
+      db.from("best_player_results")
+        .select("player_id,slot_index,selected_role,round_votes,daily_votes_tiebreak")
+        .eq("window_id", finalizedDaily.id).order("slot_index"),
+      db.from("best_player_scores")
+        .select("hits,points").eq("window_id", finalizedDaily.id).eq("user_id", authData.user.id).maybeSingle(),
+      db.from("best_player_ballots")
+        .select("id,user_id,formation").eq("window_id", finalizedDaily.id).order("submitted_at"),
+      db.from("best_player_scores")
+        .select("user_id,hits,points").eq("window_id", finalizedDaily.id),
+    ]);
+    const lastBallotCnt = (lastScoreRows as unknown as Array<{user_id: string}> ?? []).length || (lastBallotRows as unknown as Array<{id: string}> ?? []).length || 0;
+    const lastBallotIdList = ((lastBallotRows ?? []) as unknown as Array<{id: string; user_id: string}>).map((b) => b.id);
+    const lastUserIdList = ((lastBallotRows ?? []) as unknown as Array<{user_id: string}>).map((b) => b.user_id);
+    const [
+      { data: lastAllSelections },
+      { data: lastProfiles },
+    ] = await Promise.all([
+      lastBallotIdList.length > 0
+        ? db.from("best_player_ballot_players")
+          .select("ballot_id,player_id,slot_index,selected_role").in("ballot_id", lastBallotIdList).order("slot_index")
+        : Promise.resolve({ data: [] }),
+      lastUserIdList.length > 0
+        ? db.from("profiles").select("id,full_name,nickname,avatar_url").in("id", lastUserIdList)
+        : Promise.resolve({ data: [] }),
+    ]);
+    const { data: lastMatches } = await db.from("best_player_window_matches")
+      .select("match_id").eq("window_id", finalizedDaily.id);
+    const lastMatchIds = (lastMatches ?? []).map((row: { match_id: string }) => row.match_id);
+    const lastSharedPlayerIds = ((lastAllSelections ?? []) as unknown as Array<{player_id: string}>).map((s) => s.player_id);
+    const lastResultPlayers = await loadPlayers(
+      [...((lastResultRows ?? []) as unknown as Array<{player_id: string}>).map((r) => r.player_id), ...lastSharedPlayerIds],
+      lastMatchIds,
+    );
+    const lastById = new Map(lastResultPlayers.map((p) => [p.id, p]));
+    const lastResult: BestPlayerResultRow[] = ((lastResultRows ?? []) as unknown as Array<{
+      player_id: string; slot_index: number; selected_role: string;
+      round_votes: number; daily_votes_tiebreak: number;
+    }>).flatMap((row) => {
+      const player = lastById.get(row.player_id);
+      return player ? [{
+        playerId: row.player_id, slotIndex: row.slot_index,
+        selectedRole: row.selected_role as BestPlayerSelection["selectedRole"],
+        player, roundVotes: row.round_votes, dailyVotesTiebreak: row.daily_votes_tiebreak,
+      }] : [];
+    });
+    const lastScore = lastScoreRow ? { hits: (lastScoreRow as {hits: number; points: number}).hits, points: (lastScoreRow as {hits: number; points: number}).points } : null;
+    const lastProfileById = new Map(((lastProfiles ?? []) as unknown as Array<{id: string; full_name?: string; nickname?: string; avatar_url?: string}>).map((p) => [p.id, p]));
+    const lastScoreByUserId = new Map(((lastScoreRows ?? []) as unknown as Array<{user_id: string; hits: number; points: number}>).map((s) => [s.user_id, s]));
+    const lastSelectionsByBallotId = new Map<string, BestPlayerSelection[]>();
+    for (const s of ((lastAllSelections ?? []) as unknown as Array<{ballot_id: string; player_id: string; slot_index: number; selected_role: string}>)) {
+      const current = lastSelectionsByBallotId.get(s.ballot_id) ?? [];
+      current.push({ playerId: s.player_id, slotIndex: s.slot_index, selectedRole: s.selected_role as BestPlayerSelection["selectedRole"] });
+      lastSelectionsByBallotId.set(s.ballot_id, current);
+    }
+    const lastGroupTeams: BestPlayerGroupTeam[] = ((lastBallotRows ?? []) as unknown as Array<{id: string; user_id: string; formation: string}>).map((ballot) => {
+      const profile = lastProfileById.get(ballot.user_id);
+      const userScore = lastScoreByUserId.get(ballot.user_id);
+      return {
+        userId: ballot.user_id, displayName: profile?.full_name || profile?.nickname || "Participante",
+        avatarUrl: profile?.avatar_url ?? undefined, formation: ballot.formation as BestPlayerFormation,
+        selections: lastSelectionsByBallotId.get(ballot.id) ?? [],
+        hits: userScore?.hits ?? 0, points: userScore?.points ?? 0,
+      };
+    }).sort((a, b) => b.points - a.points || a.displayName.localeCompare(b.displayName, "pt-BR"));
+    
+    const { data: lastMembers } = await db.from("group_members")
+      .select("user_id").eq("group_id", finalizedDaily.group_id).eq("status", "active");
+    const votedUserIds = new Set(lastGroupTeams.map((t) => t.userId));
+    const nonVoterIds = (lastMembers ?? [] as unknown as Array<{user_id: string}>).map((m) => m.user_id).filter((id) => !votedUserIds.has(id));
+    if (nonVoterIds.length > 0) {
+      const { data: extraProfiles } = await db.from("profiles").select("id,full_name,nickname,avatar_url").in("id", nonVoterIds);
+      for (const p of (extraProfiles ?? []) as unknown as Array<{id: string; full_name?: string; nickname?: string; avatar_url?: string}>) {
+        if (!lastProfileById.has(p.id)) lastProfileById.set(p.id, p);
+      }
+    }
+    for (const member of (lastMembers ?? []) as unknown as Array<{user_id: string}>) {
+      if (votedUserIds.has(member.user_id)) continue;
+      const profile = lastProfileById.get(member.user_id);
+      lastGroupTeams.push({
+        userId: member.user_id,
+        displayName: profile?.full_name || profile?.nickname || "Participante",
+        avatarUrl: profile?.avatar_url ?? undefined,
+        formation: "4-3-3",
+        selections: [],
+        hits: 0,
+        points: 0,
+      });
+    }
+    lastGroupTeams.sort((a, b) => b.points - a.points || a.displayName.localeCompare(b.displayName, "pt-BR"));
+    lastFinalizedDaily = {
+      window: lastWin, result: lastResult, score: lastScore,
+      ballotCount: lastBallotCnt, groupTeams: lastGroupTeams, allPlayers: lastResultPlayers,
+    };
+    lastFinalizedDailyJson = JSON.stringify(lastFinalizedDaily);
+  }
+
   const [dailyVote, roundVote] = await Promise.all([loadVote(dailyRow?.id), loadVote(roundRow?.id)]);
+
+  // Aplica o status efetivo (considerando closes_at expirado) para a UI
+  const dailyEffectiveStatus = effectiveStatus(dailyRow);
+  const roundEffectiveStatus = effectiveStatus(roundRow);
+
+  function applyEffectiveStatus(window: BestPlayerWindow | null, effective: BestPlayerWindow["status"]): BestPlayerWindow | null {
+    if (!window) return null;
+    if (window.status === effective) return window;
+    return { ...window, status: effective };
+  }
   return {
     rules,
-    dailyWindow: dailyRow ? toBestPlayerWindow(dailyRow) : null,
-    roundWindow: roundRow ? toBestPlayerWindow(roundRow) : null,
+    dailyWindow: dailyRow ? applyEffectiveStatus(toBestPlayerWindow(dailyRow), dailyEffectiveStatus) : null,
+    ...(dailyPendingMatch ? { dailyPendingMatch } : {}),
+    roundWindow: roundRow ? applyEffectiveStatus(toBestPlayerWindow(roundRow), roundEffectiveStatus) : null,
     dailyPlayers,
     roundPlayers,
     dailyVote,
@@ -798,6 +1249,12 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
     score,
     roundBallotCount,
     groupTeams,
+    dailyResult,
+    dailyScore,
+    dailyBallotCount,
+    dailyGroupTeams,
+    lastFinalizedDailyJson,
+    lastFinalizedDaily,
   };
 }
 

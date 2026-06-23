@@ -23,11 +23,18 @@ type FallbackResult = {
   skipped_reason?: string;
   fetched?: number;
   live?: number;
+  finalized?: number;
   updated?: number;
   imported?: number;
   events?: number;
   matches?: number;
   error?: string;
+};
+
+type EspnScoreboardMatch = {
+  espnEventId: string;
+  homeName: string;
+  awayName: string;
 };
 
 type PlayerSyncResult = {
@@ -38,12 +45,43 @@ type PlayerSyncResult = {
   errors: string[];
 };
 
+type PlayerPhotoSyncResult = {
+  configured: boolean;
+  attempted: boolean;
+  skipped_reason?: string;
+  requests?: number;
+  mapped_teams?: number;
+  processed_teams?: number;
+  imported_players?: number;
+  updated_players?: number;
+  completed_teams?: number;
+  error?: string;
+};
+
+type MatchEventForScore = {
+  match_id: string;
+  team_id: string | null;
+  event_type: string;
+  description: string | null;
+};
+
+type VerifiedEventScore = {
+  home: number;
+  away: number;
+  cancelledHome: number;
+  cancelledAway: number;
+};
+
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
 const apiSportsMinIntervalMs = 5 * 60_000;
 const apiSportsLineupMinIntervalMs = 60_000;
 const worldCup26MinIntervalMs = 15_000;
+const espnScoreboardUrl = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard";
+const espnMinIntervalMs = 30_000;
 const maxPlayerImportsPerRun = 2;
 const maxApiSportsLineupImportsPerRun = 2;
+const maxApiSportsPlayerPhotoRequestsPerDay = 200;
+const maxApiSportsPlayerPhotoRequestsPerRun = 30;
 const highlightlyHost = "football-highlights-api.p.rapidapi.com";
 const highlightlyWorldCupLeagueId = "1635";
 const highlightlyRetryMinutes = 15;
@@ -52,6 +90,82 @@ const highlightlyRequestIntervalMs = 1_250;
 
 function apiSportsIsStandby() {
   return Deno.env.get("API_SPORTS_STANDBY") === "true";
+}
+
+function apiSportsPlayerPhotoSyncEnabled() {
+  return Deno.env.get("API_SPORTS_PLAYER_SYNC_ENABLED") === "true";
+}
+
+function syncErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
+async function triggerPhotoCache(supabaseUrl: string) {
+  const secret = Deno.env.get("INTERNAL_FUNCTION_SECRET");
+  if (!secret) return { ok: false, reason: "no internal secret configured" };
+  try {
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    const projectRef = supabaseUrl.replace("https://", "").split(".")[0];
+    const response = await fetch(
+      `https://${projectRef}.supabase.co/functions/v1/cache-player-photos`,
+      {
+        method: "POST",
+        headers: { "x-internal-secret": secret, "Authorization": `Bearer ${anonKey}` },
+        signal: AbortSignal.timeout(45_000),
+      },
+    );
+    const body = await response.json().catch(() => ({}));
+    return { ok: response.ok, status: response.status, ...body };
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function triggerWikidataSync(supabaseUrl: string) {
+  const secret = Deno.env.get("INTERNAL_FUNCTION_SECRET");
+  if (!secret) return { ok: false, reason: "no internal secret configured" };
+  try {
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    const projectRef = supabaseUrl.replace("https://", "").split(".")[0];
+    const response = await fetch(
+      `https://${projectRef}.supabase.co/functions/v1/sync-wikidata-photos`,
+      {
+        method: "POST",
+        headers: { "x-internal-secret": secret, "Authorization": `Bearer ${anonKey}` },
+        signal: AbortSignal.timeout(45_000),
+      },
+    );
+    const body = await response.json().catch(() => ({}));
+    return { ok: response.ok, status: response.status, ...body };
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function triggerWikipediaSync(supabaseUrl: string) {
+  const secret = Deno.env.get("INTERNAL_FUNCTION_SECRET");
+  if (!secret) return { ok: false, reason: "no internal secret configured" };
+  try {
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    const projectRef = supabaseUrl.replace("https://", "").split(".")[0];
+    const response = await fetch(
+      `https://${projectRef}.supabase.co/functions/v1/sync-wikipedia-photos`,
+      {
+        method: "POST",
+        headers: { "x-internal-secret": secret, "Authorization": `Bearer ${anonKey}` },
+        signal: AbortSignal.timeout(60_000),
+      },
+    );
+    const body = await response.json().catch(() => ({}));
+    return { ok: response.ok, status: response.status, ...body };
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 function json(status: number, body: Record<string, unknown>) {
@@ -77,6 +191,7 @@ function mapFootballDataStatus(status?: string): string {
     case "POSTPONED":
       return "postponed";
     case "SUSPENDED":
+      return "suspended";
     case "CANCELLED":
       return "cancelled";
     default:
@@ -139,24 +254,116 @@ function isActiveStatus(status?: string | null) {
   return status === "live" || status === "halftime";
 }
 
-function shouldPreserveCurrentLiveScore(
-  current: Pick<DbMatch, "status" | "home_score" | "away_score"> | null | undefined,
-  incomingStatus: string,
+function isCancelledGoalEvent(event: MatchEventForScore) {
+  if (event.event_type !== "var") return false;
+  const description = String(event.description ?? "").toLowerCase();
+  return description.includes("goal") && /(cancelled|canceled|disallowed|offside)/.test(description);
+}
+
+function isGoalEvent(event: MatchEventForScore) {
+  return event.event_type === "goal" || event.event_type === "own_goal" || event.event_type === "penalty";
+}
+
+function verifiedEventScore(match: Pick<DbMatch, "home_team_id" | "away_team_id">, events: MatchEventForScore[]) {
+  const score: VerifiedEventScore = { home: 0, away: 0, cancelledHome: 0, cancelledAway: 0 };
+
+  for (const event of events) {
+    const side = event.team_id === match.home_team_id
+      ? "home"
+      : event.team_id === match.away_team_id
+        ? "away"
+        : null;
+    if (!side) continue;
+
+    if (isGoalEvent(event)) score[side] += 1;
+    if (isCancelledGoalEvent(event)) {
+      if (side === "home") score.cancelledHome += 1;
+      else score.cancelledAway += 1;
+    }
+  }
+
+  return score;
+}
+
+function resolveScoreWithVerifiedEvents(
   incomingHomeScore: number | null,
   incomingAwayScore: number | null,
+  verified?: VerifiedEventScore,
 ) {
-  if (!current) return false;
-  if (!isActiveStatus(current.status) || !isActiveStatus(incomingStatus)) return false;
-  if (current.home_score === null || current.away_score === null) return false;
-  if (incomingHomeScore === null || incomingAwayScore === null) return false;
+  if (!verified) return { homeScore: incomingHomeScore, awayScore: incomingAwayScore };
 
-  const currentTotal = current.home_score + current.away_score;
-  const incomingTotal = incomingHomeScore + incomingAwayScore;
-  return (
-    incomingTotal < currentTotal ||
-    incomingHomeScore < current.home_score ||
-    incomingAwayScore < current.away_score
+  const homeWasInflated = incomingHomeScore !== null
+    && verified.cancelledHome > 0
+    && incomingHomeScore - verified.home === verified.cancelledHome;
+  const awayWasInflated = incomingAwayScore !== null
+    && verified.cancelledAway > 0
+    && incomingAwayScore - verified.away === verified.cancelledAway;
+
+  return {
+    homeScore: homeWasInflated ? verified.home : incomingHomeScore,
+    awayScore: awayWasInflated ? verified.away : incomingAwayScore,
+  };
+}
+
+async function getVerifiedEventScores(
+  admin: AdminClient,
+  matches: Array<Pick<DbMatch, "id" | "home_team_id" | "away_team_id">>,
+) {
+  const matchIds = matches.map((match) => match.id);
+  if (matchIds.length === 0) return new Map<string, VerifiedEventScore>();
+
+  const { data, error } = await admin
+    .from("match_events")
+    .select("match_id, team_id, event_type, description")
+    .in("match_id", matchIds)
+    .in("event_type", ["goal", "own_goal", "penalty", "var"]);
+  if (error) throw error;
+
+  const eventsByMatch = new Map<string, MatchEventForScore[]>();
+  for (const event of (data ?? []) as MatchEventForScore[]) {
+    const events = eventsByMatch.get(event.match_id) ?? [];
+    events.push(event);
+    eventsByMatch.set(event.match_id, events);
+  }
+
+  return new Map(
+    matches
+      .filter((match) => eventsByMatch.has(match.id))
+      .map((match) => [match.id, verifiedEventScore(match, eventsByMatch.get(match.id) ?? [])]),
   );
+}
+
+async function reconcileFinishedScoresWithVerifiedEvents(admin: AdminClient, season: string) {
+  const since = new Date(Date.now() - 36 * 60 * 60_000).toISOString();
+  const { data, error } = await admin
+    .from("matches")
+    .select("id, home_team_id, away_team_id, home_score, away_score")
+    .eq("status", "finished")
+    .gte("match_date", `${season}-01-01T00:00:00Z`)
+    .gte("match_date", since);
+  if (error) throw error;
+
+  const matches = (data ?? []) as Array<Pick<DbMatch, "id" | "home_team_id" | "away_team_id" | "home_score" | "away_score">>;
+  const verifiedScores = await getVerifiedEventScores(admin, matches);
+  let corrected = 0;
+
+  for (const match of matches) {
+    const resolved = resolveScoreWithVerifiedEvents(
+      match.home_score,
+      match.away_score,
+      verifiedScores.get(match.id),
+    );
+    if (resolved.homeScore === match.home_score && resolved.awayScore === match.away_score) continue;
+
+    const { error: updateError } = await admin
+      .from("matches")
+      .update({ home_score: resolved.homeScore, away_score: resolved.awayScore })
+      .eq("id", match.id);
+    if (updateError) throw updateError;
+    corrected += 1;
+  }
+
+  return corrected;
 }
 
 function mapPlayerPosition(value?: string | null): "gk" | "df" | "mf" | "fw" {
@@ -277,6 +484,90 @@ async function importUnfoldedMatchRoster(
   }).eq("id", match.id);
   if (matchError) throw matchError;
   return saved.count;
+}
+
+
+async function syncMatchGoalDetails(
+  admin: AdminClient,
+  apiToken: string,
+  match: { id: string; api_fixture_id: number; home_team_id: string; away_team_id: string },
+): Promise<number> {
+  try {
+    const detailResponse = await fetch(
+      `https://api.football-data.org/v4/matches/${match.api_fixture_id}`,
+      { headers: { "X-Auth-Token": apiToken }, signal: AbortSignal.timeout(10_000) },
+    );
+    if (!detailResponse.ok) return 0;
+
+    const detail = await detailResponse.json();
+    const goals: any[] = Array.isArray(detail.goals) ? detail.goals : [];
+    if (goals.length === 0) return 0;
+
+    let eventsInserted = 0;
+    for (const goal of goals) {
+      const goalMinute = typeof goal.minute === "number" ? goal.minute : null;
+      if (goalMinute === null) continue;
+      const goalType = String(goal.type ?? "").toUpperCase();
+
+      const goalTeamId = Number(goal.team?.id);
+      const dbTeamId = goalTeamId === Number(detail.homeTeam?.id)
+        ? match.home_team_id
+        : goalTeamId === Number(detail.awayTeam?.id)
+          ? match.away_team_id
+          : null;
+      if (!dbTeamId) continue;
+
+      let scorerDbId: string | null = null;
+      if (goal.scorer?.id) {
+        const saved = await upsertPlayer(admin, {
+          id: goal.scorer.id,
+          name: goal.scorer.name,
+          shirtNumber: null,
+          position: null,
+        }, dbTeamId);
+        scorerDbId = saved?.id ?? null;
+      }
+
+      let assistDbId: string | null = null;
+      if (goal.assist?.id) {
+        const saved = await upsertPlayer(admin, {
+          id: goal.assist.id,
+          name: goal.assist.name,
+          shirtNumber: null,
+          position: null,
+        }, dbTeamId);
+        assistDbId = saved?.id ?? null;
+      }
+
+      const eventType = goalType === "PENALTY"
+        ? "penalty"
+        : goalType === "OWN"
+          ? "own_goal"
+          : "goal";
+
+      const sourceKey = `fd-${match.id}-${dbTeamId}-${goalMinute}-${goal.scorer?.id ?? "unknown"}`;
+
+      const { error: eventError } = await admin
+        .from("match_events")
+        .upsert({
+          match_id: match.id,
+          team_id: dbTeamId,
+          scorer_player_id: scorerDbId,
+          assist_player_id: assistDbId,
+          event_type: eventType,
+          minute: goalMinute,
+          extra_minute: typeof goal.injuryTime === "number" ? goal.injuryTime : null,
+          description: goalType === "OWN" ? "own_goal" : goalType === "PENALTY" ? "penalty" : "goal",
+          source_event_key: sourceKey,
+          is_cancelled: false,
+        }, { onConflict: "source_event_key" });
+      if (!eventError) eventsInserted += 1;
+    }
+
+    return eventsInserted;
+  } catch {
+    return 0;
+  }
 }
 
 async function syncFinishedMatchPlayers(
@@ -430,6 +721,20 @@ async function getFallbackCandidates(admin: AdminClient): Promise<DbMatch[]> {
     .select("id, api_fixture_id, home_team_id, away_team_id, match_date, status, home_score, away_score, home_team:home_team_id(name,country), away_team:away_team_id(name,country)")
     .lte("match_date", windowEnd)
     .gt("match_date", windowStart);
+
+  if (error) throw error;
+  return (data ?? []) as unknown as DbMatch[];
+}
+
+async function getWorldCup26FallbackCandidates(admin: AdminClient): Promise<DbMatch[]> {
+  // Reconcile every match that has already kicked off but is still unresolved in
+  // our database. This also repairs a missed final result after a temporary
+  // outage of the primary provider.
+  const { data, error } = await admin
+    .from("matches")
+    .select("id, api_fixture_id, home_team_id, away_team_id, match_date, status, home_score, away_score, home_team:home_team_id(name,country), away_team:away_team_id(name,country)")
+    .lte("match_date", new Date().toISOString())
+    .in("status", ["scheduled", "live", "halftime"]);
 
   if (error) throw error;
   return (data ?? []) as unknown as DbMatch[];
@@ -697,10 +1002,14 @@ async function syncHighlightlyMatchDetails(admin: AdminClient, now: string, seas
           : teamMatches(event.team?.name, match.away_team?.name)
             ? match.away_team_id
             : null;
+        const scorer = findExistingTeamPlayer([...homePlayers, ...awayPlayers], event.player);
+        const assist = findExistingTeamPlayer([...homePlayers, ...awayPlayers], event.assist);
         return {
           match_id: match.id,
           team_id: teamId,
           player_name: event.player ?? null,
+          scorer_player_id: scorer?.id ?? null,
+          assist_player_id: assist?.id ?? null,
           event_type: mapHighlightlyEventType(event.type),
           minute: timing.minute,
           extra_minute: timing.extraMinute,
@@ -708,6 +1017,7 @@ async function syncHighlightlyMatchDetails(admin: AdminClient, now: string, seas
           assist_player_name: event.assist || null,
           substituted_player_name: event.substituted || null,
           highlightly_event_key: highlightlyEventKey(match.id, event),
+          is_cancelled: String(event.type ?? "").toLowerCase().includes("cancel") || String(event.type ?? "").toLowerCase().includes("offside"),
         };
       });
       const uniqueEventRows = dedupeHighlightlyEvents(eventRows);
@@ -827,9 +1137,209 @@ async function syncApiSportsFinishedMatchLineups(admin: AdminClient, now: string
     await admin.from("sync_runs").update({ status: "success", finished_at: now, request_count: candidates.length + 1, metadata: result }).eq("id", run.data.id);
     return result;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = syncErrorMessage(error);
     await admin.from("sync_runs").update({ status: "failed", finished_at: new Date().toISOString(), error: message }).eq("id", run.data.id);
     return { configured: true, attempted: true, error: message };
+  }
+}
+
+function startOfUtcDay() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
+}
+
+async function getApiSportsPlayerPhotoRequestsToday(admin: AdminClient) {
+  const { data, error } = await admin
+    .from("sync_runs")
+    .select("request_count")
+    .eq("provider", "api-sports-player-photos")
+    .gte("started_at", startOfUtcDay());
+  if (error) throw error;
+  return (data ?? []).reduce((total: number, run: { request_count?: number }) => total + Number(run.request_count ?? 0), 0);
+}
+
+type PhotoSyncTeam = {
+  id: string;
+  name: string;
+  api_sports_team_id: number | null;
+  api_sports_players_page: number;
+  api_sports_players_synced_at: string | null;
+  api_sports_players_sync_attempts: number;
+};
+
+async function getWorldCupTeamsForPhotoSync(admin: AdminClient, season: string): Promise<PhotoSyncTeam[]> {
+  const { data: competition, error: competitionError } = await admin
+    .from("competitions")
+    .select("id")
+    .eq("name", "FIFA World Cup")
+    .eq("season", season)
+    .maybeSingle();
+  if (competitionError) throw competitionError;
+  if (!competition) return [];
+
+  const { data: matches, error: matchesError } = await admin
+    .from("matches")
+    .select("home_team_id,away_team_id")
+    .eq("competition_id", competition.id);
+  if (matchesError) throw matchesError;
+  const teamIds = Array.from(new Set((matches ?? [])
+    .flatMap((match: { home_team_id: string | null; away_team_id: string | null }) => [match.home_team_id, match.away_team_id])
+    .filter((teamId): teamId is string => typeof teamId === "string" && teamId.length > 0 && teamId !== "null")));
+  if (teamIds.length === 0) return [];
+
+  const { data: teams, error: teamsError } = await admin
+    .from("teams")
+    .select("id,name,api_sports_team_id,api_sports_players_page,api_sports_players_synced_at,api_sports_players_sync_attempts")
+    .in("id", teamIds);
+  if (teamsError) throw teamsError;
+  return (teams ?? []) as PhotoSyncTeam[];
+}
+
+type PhotoSyncPlayer = { id: string; name: string; api_sports_player_id: number | null };
+
+async function syncApiSportsPlayerPhotoPage(
+  admin: AdminClient,
+  apiKey: string,
+  team: PhotoSyncTeam,
+) {
+  const url = new URL("https://v3.football.api-sports.io/players/squads");
+  url.searchParams.set("team", String(team.api_sports_team_id));
+  const response = await fetch(url, {
+    headers: { "x-apisports-key": apiKey },
+    signal: AbortSignal.timeout(20_000),
+  });
+  const payload = await response.json().catch(async () => ({ errors: await response.text(), response: [] }));
+  if (!response.ok || (payload.errors && Object.keys(payload.errors).length > 0)) {
+    throw new Error(`API-Sports player squad returned ${response.status}: ${JSON.stringify(payload.errors)}`);
+  }
+
+  const { data: existingRows, error: existingError } = await admin
+    .from("players")
+    .select("id,name,api_sports_player_id")
+    .eq("team_id", team.id);
+  if (existingError) throw existingError;
+  const existing = (existingRows ?? []) as PhotoSyncPlayer[];
+  let imported = 0;
+  let updated = 0;
+
+  const squad = (payload.response ?? []).flatMap((item: any) => Array.isArray(item.players) ? item.players : []);
+  for (const player of squad) {
+    const playerId = Number(player?.id);
+    const playerName = String(player?.name ?? "").trim();
+    if (!Number.isFinite(playerId) || !playerName) continue;
+    const position = mapPlayerPosition(player?.position);
+    const values = {
+      api_sports_player_id: playerId,
+      name: playerName,
+      position,
+      shirt_number: Number.isInteger(player?.number) ? player.number : null,
+      photo_url: typeof player?.photo === "string" && player.photo.length > 0 ? player.photo : null,
+      photo_source: "api-sports",
+      photo_synced_at: new Date().toISOString(),
+      active: true,
+      last_synced_at: new Date().toISOString(),
+    };
+    const current = existing.find((candidate) => Number(candidate.api_sports_player_id) === playerId)
+      ?? findExistingTeamPlayer(existing as ExistingTeamPlayer[], playerName);
+    if (current) {
+      const { error } = await admin.from("players").update(values).eq("id", current.id);
+      if (error) throw error;
+      updated += 1;
+    } else {
+      const { error } = await admin.from("players").insert({ team_id: team.id, ...values });
+      if (error) throw error;
+      imported += 1;
+    }
+  }
+
+  const { error: teamError } = await admin.from("teams").update({
+    api_sports_players_page: 1,
+    api_sports_players_synced_at: new Date().toISOString(),
+    api_sports_players_sync_attempts: 0,
+    api_sports_players_last_error: null,
+  }).eq("id", team.id);
+  if (teamError) throw teamError;
+  return { imported, updated, complete: true };
+}
+
+async function findApiSportsTeamId(apiKey: string, name: string) {
+  const url = new URL("https://v3.football.api-sports.io/teams");
+  url.searchParams.set("search", name);
+  const response = await fetch(url, { headers: { "x-apisports-key": apiKey }, signal: AbortSignal.timeout(20_000) });
+  const payload = await response.json().catch(async () => ({ errors: await response.text(), response: [] }));
+  if (!response.ok || (payload.errors && Object.keys(payload.errors).length > 0)) {
+    throw new Error(`API-Sports team search returned ${response.status}: ${JSON.stringify(payload.errors)}`);
+  }
+  const team = (payload.response ?? []).find((item: any) => teamMatches(name, item.team?.name));
+  return Number(team?.team?.id) || null;
+}
+
+async function syncApiSportsPlayerPhotos(admin: AdminClient, now: string): Promise<PlayerPhotoSyncResult> {
+  if (!apiSportsPlayerPhotoSyncEnabled()) {
+    return { configured: true, attempted: false, skipped_reason: "Player photo sync is disabled" };
+  }
+  const apiKey = Deno.env.get("FOOTBALL_API_KEY");
+  const season = Deno.env.get("FOOTBALL_DATA_SEASON") ?? Deno.env.get("FOOTBALL_API_SEASON") ?? "2026";
+  if (!apiKey) return { configured: false, attempted: false, skipped_reason: "API-Sports credentials are not configured" };
+
+  const usedToday = await getApiSportsPlayerPhotoRequestsToday(admin);
+  const remaining = Math.min(maxApiSportsPlayerPhotoRequestsPerRun, maxApiSportsPlayerPhotoRequestsPerDay - usedToday);
+  if (remaining <= 0) return { configured: true, attempted: false, skipped_reason: "Daily API-Sports player photo budget reached" };
+
+  const run = await admin.from("sync_runs")
+    .insert({ kind: "players", provider: "api-sports-player-photos", status: "running" })
+    .select("id")
+    .single();
+  if (run.error) throw run.error;
+
+  let requests = 0;
+  let mappedTeams = 0;
+  let processedTeams = 0;
+  let importedPlayers = 0;
+  let updatedPlayers = 0;
+  let completedTeams = 0;
+  try {
+    const teams = await getWorldCupTeamsForPhotoSync(admin, season);
+
+    for (const originalTeam of teams
+      .filter((item) => !item.api_sports_players_synced_at)
+      .sort((a, b) => a.api_sports_players_sync_attempts - b.api_sports_players_sync_attempts || a.name.localeCompare(b.name))) {
+      if (requests >= remaining) break;
+      let team = originalTeam;
+      const requestsBefore = requests;
+      try {
+        if (!team.api_sports_team_id) {
+          const apiTeamId = await findApiSportsTeamId(apiKey, team.name);
+          requests += 1;
+          if (!apiTeamId) throw new Error(`API-Sports did not find a team matching ${team.name}`);
+          const { error } = await admin.from("teams").update({ api_sports_team_id: apiTeamId }).eq("id", team.id);
+          if (error) throw error;
+          team = { ...team, api_sports_team_id: apiTeamId };
+          mappedTeams += 1;
+        }
+        if (requests >= remaining) break;
+        const result = await syncApiSportsPlayerPhotoPage(admin, apiKey, team);
+        requests += 1;
+        processedTeams += 1;
+        importedPlayers += result.imported;
+        updatedPlayers += result.updated;
+        if (result.complete) completedTeams += 1;
+      } catch (error) {
+        if (requests === requestsBefore) requests += 1;
+        await admin.from("teams").update({
+          api_sports_players_sync_attempts: team.api_sports_players_sync_attempts + 1,
+          api_sports_players_last_error: syncErrorMessage(error),
+        }).eq("id", team.id);
+      }
+    }
+
+    const result = { configured: true, attempted: requests > 0, requests, mapped_teams: mappedTeams, processed_teams: processedTeams, imported_players: importedPlayers, updated_players: updatedPlayers, completed_teams: completedTeams };
+    await admin.from("sync_runs").update({ status: "success", finished_at: now, request_count: requests, metadata: result }).eq("id", run.data.id);
+    return result;
+  } catch (error) {
+    const message = syncErrorMessage(error);
+    await admin.from("sync_runs").update({ status: "failed", finished_at: new Date().toISOString(), request_count: requests, error: message }).eq("id", run.data.id);
+    return { configured: true, attempted: requests > 0, requests, error: message };
   }
 }
 
@@ -883,14 +1393,14 @@ async function applyApiSportsFallback(admin: AdminClient, now: string): Promise<
       if (status === "scheduled" && homeScore === null && awayScore === null) continue;
       if (status === "finished") continue;
       if (status === "live" || status === "halftime") live += 1;
-      const preserveScore = shouldPreserveCurrentLiveScore(candidate, status, homeScore, awayScore);
-
       const { data, error } = await admin
         .from("matches")
         .update({
           status,
-          home_score: preserveScore ? candidate.home_score : homeScore,
-          away_score: preserveScore ? candidate.away_score : awayScore,
+          // Placar pode diminuir após revisão do VAR; sempre aceite a correção
+          // mais recente do provedor em vez de tratar gols como monotônicos.
+          home_score: homeScore,
+          away_score: awayScore,
           elapsed: isActiveStatus(status) ? fixture.fixture?.status?.elapsed ?? null : null,
           last_synced_at: now,
         })
@@ -932,6 +1442,33 @@ function parseWorldCup26Score(value: unknown) {
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchEspnScoreboard(): Promise<EspnScoreboardMatch[]> {
+  const response = await fetch(espnScoreboardUrl, {
+    headers: { accept: "application/json" },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) return [];
+  const body = await response.json();
+  const events: any[] = Array.isArray(body.events) ? body.events : [];
+  return events
+    .filter((event) => String(event?.status?.type?.state ?? "").toLowerCase() === "in")
+    .map((event) => {
+      const competitors = Array.isArray(event.competitions?.[0]?.competitors) ? event.competitions[0].competitors : [];
+      const home = competitors.find((c: any) => c.homeAway === "home");
+      const away = competitors.find((c: any) => c.homeAway === "away");
+      return {
+        espnEventId: String(event.id ?? ""),
+        homeName: String(home?.team?.displayName ?? home?.team?.shortDisplayName ?? ""),
+        awayName: String(away?.team?.displayName ?? away?.team?.shortDisplayName ?? ""),
+      };
+    })
+    .filter((m) => m.espnEventId && m.homeName && m.awayName);
+}
+
+async function shouldTryEspn(admin: AdminClient) {
+  return shouldTryProvider(admin, "espn-live-events", espnMinIntervalMs);
 }
 
 async function fetchWorldCup26Games() {
@@ -981,9 +1518,9 @@ function findWorldCup26Game(games: any[], match: DbMatch) {
 }
 
 async function applyWorldCup26Fallback(admin: AdminClient, now: string): Promise<FallbackResult> {
-  const candidates = await getFallbackCandidates(admin);
+  const candidates = await getWorldCup26FallbackCandidates(admin);
   if (candidates.length === 0) {
-    return { configured: true, attempted: false, skipped_reason: "No live-window fallback candidates" };
+    return { configured: true, attempted: false, skipped_reason: "No unresolved WorldCup26 fallback candidates" };
   }
 
   if (!(await shouldTryWorldCup26(admin))) {
@@ -1001,6 +1538,7 @@ async function applyWorldCup26Fallback(admin: AdminClient, now: string): Promise
     const { games, attempts } = await fetchWorldCup26Games();
     let updated = 0;
     let live = 0;
+    let finalized = 0;
 
     for (const candidate of candidates) {
       const game = findWorldCup26Game(games, candidate);
@@ -1011,18 +1549,23 @@ async function applyWorldCup26Fallback(admin: AdminClient, now: string): Promise
       const awayScore = parseWorldCup26Score(game.away_score);
       if (status === "scheduled") continue;
       if (homeScore === null || awayScore === null) continue;
-      // worldcup26.ir is only a fast live fallback. Final results must come from the
-      // primary provider to avoid stale/incorrect finals overwriting the official score.
-      if (status === "finished") continue;
-      if (status === "live" || status === "halftime") live += 1;
-      const preserveScore = shouldPreserveCurrentLiveScore(candidate, status, homeScore, awayScore);
 
+      // WorldCup26 is a contingency source with potentially latent data.
+      // Never overwrite a live/halftime score that was already set by the
+      // primary provider (football-data.org) in the same sync run.
+      // Only let WorldCup26 update when it has a final result that our
+      // database is missing (e.g. after a primary-provider outage).
+      if (candidate.status !== "scheduled" && status !== "finished") {
+        continue;
+      }
+      if (status === "live" || status === "halftime") live += 1;
+      if (status === "finished") finalized += 1;
       const { data, error } = await admin
         .from("matches")
         .update({
           status,
-          home_score: preserveScore ? candidate.home_score : homeScore,
-          away_score: preserveScore ? candidate.away_score : awayScore,
+          home_score: homeScore,
+          away_score: awayScore,
           elapsed: null,
           last_synced_at: now,
         })
@@ -1032,7 +1575,7 @@ async function applyWorldCup26Fallback(admin: AdminClient, now: string): Promise
       if (data && data.length > 0) updated += 1;
     }
 
-    const result = { configured: true, attempted: true, attempts, fetched: games.length, live, updated };
+    const result = { configured: true, attempted: true, attempts, fetched: games.length, live, finalized, updated };
     await admin
       .from("sync_runs")
       .update({ status: "success", finished_at: now, request_count: 1, metadata: result })
@@ -1132,21 +1675,58 @@ Deno.serve(async (req) => {
       }
     }
 
+    const verifiedEventScores = await getVerifiedEventScores(admin, Array.from(existingByFixtureId.values()));
+
     let unfoldedAppearances = 0;
+    let liveGoalsFetched = 0;
+    let liveGoalsDetailOk = 0;
+    let liveGoalsDetailFailed = 0;
+    let liveGoalsEvents = 0;
+    let espnMatched = 0;
+    let espnSummaryFetched = 0;
+    let espnGoalsFound = 0;
+    const liveMatchCandidates: Array<{ id: string; home_team_id: string; away_team_id: string; home_team: { name: string | null } | null; away_team: { name: string | null } | null }> = [];
     for (const m of matches) {
       const status = mapFootballDataStatus(m.status);
       if (status === "live" || status === "halftime") live += 1;
-      const homeScore = m.score?.fullTime?.home ?? null;
-      const awayScore = m.score?.fullTime?.away ?? null;
+      const providerHomeScore = m.score?.fullTime?.home ?? null;
+      const providerAwayScore = m.score?.fullTime?.away ?? null;
       const current = existingByFixtureId.get(Number(m.id));
-      const preserveScore = shouldPreserveCurrentLiveScore(current, status, homeScore, awayScore);
+      if ((status === "live" || status === "halftime") && current) {
+        liveMatchCandidates.push({
+          id: current.id,
+          home_team_id: current.home_team_id,
+          away_team_id: current.away_team_id,
+          home_team: m.homeTeam ? { name: m.homeTeam.name ?? m.homeTeam.shortName ?? null } : null,
+          away_team: m.awayTeam ? { name: m.awayTeam.name ?? m.awayTeam.shortName ?? null } : null,
+        });
+      }
+      // Gols podem ser anulados pelo VAR. A resposta mais recente da fonte
+      // principal deve poder reduzir o placar salvo.
+      const incomingHomeScore = providerHomeScore;
+      const incomingAwayScore = providerAwayScore;
+      const resolvedScore = status === "finished"
+        ? resolveScoreWithVerifiedEvents(incomingHomeScore, incomingAwayScore, current ? verifiedEventScores.get(current.id) : undefined)
+        : { homeScore: incomingHomeScore, awayScore: incomingAwayScore };
+
+      // Status transition guard: prevent regressions.
+      // - Never overwrite a finished result unless the new status is also finished.
+      // - Suspended matches can recover to live; cancelled/postponed cannot.
+      const previousStatus = current?.status;
+      const effectiveStatus =
+        previousStatus === "finished" && status !== "finished"
+          ? "finished"
+          : (previousStatus === "cancelled" || previousStatus === "postponed") && status === "live"
+            ? previousStatus
+            : status;
+      const statusRecovery = previousStatus === "suspended" && (status === "live" || status === "halftime");
 
       const { data, error } = await admin
         .from("matches")
         .update({
-          status,
-          home_score: preserveScore ? current?.home_score ?? homeScore : homeScore,
-          away_score: preserveScore ? current?.away_score ?? awayScore : awayScore,
+          status: effectiveStatus,
+          home_score: resolvedScore.homeScore,
+          away_score: resolvedScore.awayScore,
           elapsed: m.minute ?? null,
           last_synced_at: now,
         })
@@ -1154,14 +1734,160 @@ Deno.serve(async (req) => {
         .select("id");
       if (error) throw error;
       if (data && data.length > 0) updated += 1;
+
+      // Sync live goal events using the shared detail fetcher.
+      // Covers live, halftime, and matches recovering from suspension.
+      if (current && (status === "live" || status === "halftime" || statusRecovery)) {
+        liveGoalsFetched += 1;
+        const inserted = await syncMatchGoalDetails(admin, apiToken, {
+          id: current.id,
+          api_fixture_id: Number(m.id),
+          home_team_id: current.home_team_id,
+          away_team_id: current.away_team_id,
+        });
+        if (inserted > 0) {
+          liveGoalsDetailOk += 1;
+          liveGoalsEvents += inserted;
+        } else {
+          liveGoalsDetailFailed += 1;
+        }
+      }
+
       if (status === "finished" && current) {
         unfoldedAppearances += await importUnfoldedMatchRoster(admin, m, current);
       }
     }
 
+    // ESPN live goal events for in-progress matches.
+    if (liveMatchCandidates.length > 0 && (await shouldTryEspn(admin))) {
+      try {
+        const espnLive = await fetchEspnScoreboard();
+        for (const candidate of liveMatchCandidates) {
+          const espnMatch = espnLive.find(
+            (e) => teamMatches(e.homeName, candidate.home_team?.name) && teamMatches(e.awayName, candidate.away_team?.name),
+          );
+          if (!espnMatch) continue;
+          espnMatched += 1;
+
+          const summaryResp = await fetch(
+            `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary?event=${espnMatch.espnEventId}`,
+            { headers: { accept: "application/json" }, signal: AbortSignal.timeout(10_000) },
+          );
+          if (!summaryResp.ok) continue;
+          espnSummaryFetched += 1;
+          const summary = await summaryResp.json();
+          const plays: any[] = Array.isArray(summary.plays) ? summary.plays : [];
+
+          for (const play of plays) {
+            if (!play.scoringPlay) continue;
+            espnGoalsFound += 1;
+            const athletes: any[] = Array.isArray(play.athletesInvolved) ? play.athletesInvolved : [];
+            if (athletes.length === 0) continue;
+            const scorer = athletes[0];
+            const assist = athletes.length > 1 ? athletes[1] : null;
+            const playTeamName = String(play.team?.displayName ?? "");
+            const dbTeamId = teamMatches(playTeamName, candidate.home_team?.name) ? candidate.home_team_id
+              : teamMatches(playTeamName, candidate.away_team?.name) ? candidate.away_team_id
+              : null;
+            if (!dbTeamId) continue;
+
+            const clockRaw = String(play.clock?.displayValue ?? "");
+            const minuteMatch = clockRaw.match(/(\d+)/);
+            const goalMinute = minuteMatch ? Number(minuteMatch[1]) : null;
+            if (goalMinute === null) continue;
+            const extraMinute = clockRaw.includes("+") ? Number(clockRaw.match(/(\d+)/)?.[0]) : null;
+
+            let scorerDbId: string | null = null;
+            if (scorer?.id) {
+              const saved = await upsertPlayer(admin, { id: scorer.id, name: scorer.displayName, shirtNumber: null, position: null }, dbTeamId);
+              scorerDbId = saved?.id ?? null;
+            }
+            let assistDbId: string | null = null;
+            if (assist?.id) {
+              const saved = await upsertPlayer(admin, { id: assist.id, name: assist.displayName, shirtNumber: null, position: null }, dbTeamId);
+              assistDbId = saved?.id ?? null;
+            }
+
+            const eventType = String(play.type?.text ?? "").toLowerCase().includes("penalty") ? "penalty"
+              : String(play.type?.text ?? "").toLowerCase().includes("own") ? "own_goal"
+              : "goal";
+            const sourceKey = `espn-${candidate.id}-${dbTeamId}-${goalMinute}-${scorer?.id ?? "unknown"}`;
+
+            const { error: eventError } = await admin.from("match_events").upsert({
+              match_id: candidate.id,
+              team_id: dbTeamId,
+              scorer_player_id: scorerDbId,
+              assist_player_id: assistDbId,
+              event_type: eventType,
+              minute: goalMinute,
+              extra_minute: extraMinute,
+              description: eventType,
+              source_event_key: sourceKey,
+              is_cancelled: false,
+            }, { onConflict: "source_event_key" });
+            if (!eventError) liveGoalsEvents += 1;
+          }
+        }
+      } catch {
+        // Non-fatal.
+      }
+    }
+
+    // Backfill goal details for recently finished matches that may have
+    // been missed during live play (e.g. simultaneous games, suspensions).
+    // This ensures every finished match gets its goals recorded regardless
+    // of what happened during the match lifecycle.
+    let finishedGoalBackfill = 0;
+    try {
+      const { data: finishedMissingGoals } = await admin
+        .from("matches")
+        .select("id, api_fixture_id, home_team_id, away_team_id, home_score, away_score")
+        .eq("status", "finished")
+        .gte("match_date", `${season}-01-01T00:00:00Z`)
+        .not("api_fixture_id", "is", null)
+        .or("home_score.gt.0,away_score.gt.0")
+        .order("match_date", { ascending: false })
+        .limit(5);
+
+      for (const match of (finishedMissingGoals ?? []) as any[]) {
+        const totalGoals = (match.home_score ?? 0) + (match.away_score ?? 0);
+        if (totalGoals === 0) continue;
+
+        // Count existing goal events for this match
+        const { count } = await admin
+          .from("match_events")
+          .select("id", { count: "exact", head: true })
+          .eq("match_id", match.id)
+          .in("event_type", ["goal", "own_goal", "penalty"]);
+
+        // If we already have enough goal events, skip
+        if ((count ?? 0) >= totalGoals) continue;
+
+        // Fetch and insert missing goal details
+        const inserted = await syncMatchGoalDetails(admin, apiToken, {
+          id: match.id,
+          api_fixture_id: match.api_fixture_id,
+          home_team_id: match.home_team_id,
+          away_team_id: match.away_team_id,
+        });
+        if (inserted > 0) {
+          finishedGoalBackfill += inserted;
+          // Recalculate scores for this match since we just added goal details
+          await admin.rpc("recalculate_match_scores", {
+            p_match_id: match.id,
+            p_group_id: null,
+          }).catch(() => { /* non-fatal */ });
+        }
+      }
+    } catch {
+      // Non-fatal: backfill should never abort the main sync.
+    }
+
     const playerSync = await syncFinishedMatchPlayers(admin, apiToken, season);
     const highlightlyDetails = await syncHighlightlyMatchDetails(admin, now, season);
+    const eventScoreCorrections = await reconcileFinishedScoresWithVerifiedEvents(admin, season);
     const apiSportsLineups = await syncApiSportsFinishedMatchLineups(admin, now);
+    const apiSportsPlayerPhotos = await syncApiSportsPlayerPhotos(admin, now);
     const { data: bestPlayerLifecycle, error: lifecycleError } = await admin.rpc("process_best_player_windows");
     if (lifecycleError) throw lifecycleError;
 
@@ -1178,10 +1904,15 @@ Deno.serve(async (req) => {
           fetched: matches.length,
           updated,
           live,
+          live_goals: { fetched: liveGoalsFetched, detail_ok: liveGoalsDetailOk, detail_fail: liveGoalsDetailFailed, events: liveGoalsEvents },
+          espn: { matched: espnMatched, summaries: espnSummaryFetched, goals: espnGoalsFound },
+          finished_goal_backfill: finishedGoalBackfill,
           player_sync: playerSync,
           highlightly_match_details: highlightlyDetails,
+          event_score_corrections: eventScoreCorrections,
           unfolded_appearances: unfoldedAppearances,
           api_sports_lineups: apiSportsLineups,
+          api_sports_player_photos: apiSportsPlayerPhotos,
           best_player_lifecycle: { initial: initialBestPlayerLifecycle, final: bestPlayerLifecycle },
           api_sports_fallback: apiSportsFallback,
           worldcup26_fallback: worldCup26Fallback,
@@ -1189,32 +1920,61 @@ Deno.serve(async (req) => {
       })
       .eq("id", run.data.id);
 
+    // Dispara o cache das fotos em background (não bloqueia a resposta)
+    const cacheResult = await triggerPhotoCache(supabaseUrl);
+    // Dispara sync de fotos do Wikidata (background)
+    const wikidataResult = await triggerWikidataSync(supabaseUrl);
+    // Dispara sync de fotos da Wikipedia (background)
+    const wikipediaResult = await triggerWikipediaSync(supabaseUrl);
+
     return json(200, {
       status: "success",
       fetched: matches.length,
       updated,
       live,
+      finished_goal_backfill: finishedGoalBackfill,
       player_sync: playerSync,
       highlightly_match_details: highlightlyDetails,
+      event_score_corrections: eventScoreCorrections,
       unfolded_appearances: unfoldedAppearances,
       api_sports_lineups: apiSportsLineups,
+      api_sports_player_photos: apiSportsPlayerPhotos,
       best_player_lifecycle: { initial: initialBestPlayerLifecycle, final: bestPlayerLifecycle },
       api_sports_fallback: apiSportsFallback,
       worldcup26_fallback: worldCup26Fallback,
+      photo_cache: cacheResult,
+      wikidata_sync: wikidataResult,
+      wikipedia_sync: wikipediaResult,
     });
   } catch (error) {
-    const { data: bestPlayerLifecycle } = await admin.rpc("process_best_player_windows").catch(() => ({ data: null }));
+    // Even if the primary provider is unavailable, attempt to settle unresolved
+    // matches from WorldCup26 before reporting the degraded sync to the caller.
+    const worldCup26Fallback = await applyWorldCup26Fallback(admin, new Date().toISOString())
+      .catch((fallbackError) => ({
+        configured: true,
+        attempted: true,
+        error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+      }));
+    let bestPlayerLifecycle = null;
+    try {
+      const { data } = await admin.rpc("process_best_player_windows");
+      bestPlayerLifecycle = data;
+    } catch {
+      // Preserva o erro original da sincronização quando a manutenção das janelas também falhar.
+    }
     await admin
       .from("sync_runs")
       .update({
         status: "failed",
         finished_at: new Date().toISOString(),
         error: error instanceof Error ? error.message : String(error),
+        metadata: { worldcup26_fallback: worldCup26Fallback },
       })
       .eq("id", run.data.id);
     return json(500, {
       error: error instanceof Error ? error.message : String(error),
       best_player_lifecycle: bestPlayerLifecycle,
+      worldcup26_fallback: worldCup26Fallback,
     });
   }
 });

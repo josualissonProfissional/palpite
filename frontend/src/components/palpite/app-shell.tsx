@@ -1,8 +1,12 @@
 import Link from "next/link";
 import Image from "next/image";
+import { Suspense } from "react";
+import { NavigationLoader } from "@/components/palpite/navigation-loader";
 import { AnimatedWorldCupBackground } from "@/components/palpite/animated-world-cup-background";
 import { AppSidebarNav } from "@/components/palpite/app-sidebar-nav";
 import { BestPlayersUpdateDialog } from "@/components/palpite/best-players-update-dialog";
+import { GoalAssistUpdateDialog } from "@/components/palpite/goal-assist-update-dialog";
+import { PendingActionsLoader } from "@/components/palpite/pending-actions-loader";
 import { ThemeToggle } from "@/components/palpite/theme-toggle";
 import {
   Sidebar,
@@ -29,6 +33,8 @@ export function AppShell({
   return (
     <SidebarProvider>
       <BestPlayersUpdateDialog groupSlug={groupSlug} />
+      <GoalAssistUpdateDialog groupSlug={groupSlug} />
+      {groupSlug ? <Suspense fallback={null}><PendingActionsLoader groupSlug={groupSlug} /></Suspense> : null}
       <div className="relative flex min-h-svh w-full overflow-x-hidden bg-background">
         <AnimatedWorldCupBackground teams={teams} />
         <Sidebar variant="floating" collapsible="icon" className="border-white/70 dark:border-white/10">
@@ -76,7 +82,9 @@ export function AppShell({
             <ThemeToggle />
           </div>
           <main className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col gap-3 px-3 py-3 sm:gap-5 sm:px-6 sm:py-4 lg:px-8">
-            {children}
+            <NavigationLoader>
+              {children}
+            </NavigationLoader>
           </main>
         </SidebarInset>
       </div>

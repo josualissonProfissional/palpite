@@ -98,6 +98,23 @@ FOOTBALL_DATA_API_KEY='chave-da-football-data-org' FOOTBALL_DATA_SEASON=2026 \
 
 Esse script importa partidas e recalcula a classificacao por grupo antes de gerar o SQL.
 
+### `sync-live`
+
+Atualiza os dados operacionais dos jogos no banco. E uma funcao interna e requer o header `x-internal-secret`.
+
+#### Fontes de dados da Copa 2026
+
+| Fonte | Dados consumidos | Observacao |
+| --- | --- | --- |
+| football-data.org | Jogos, horario, status, placar, elencos e classificacao calculada a partir dos resultados. | E a fonte principal. A sincronizacao pede os campos de escalação, mas a cobertura da Copa nao os fornece. |
+| API-Football / API-Sports | Titulares e banco pelo endpoint `GET /fixtures/lineups`; contingencia de placar e status. | Usada para preencher escalacoes de jogos finalizados sem titulares registrados. Esta em standby enquanto `API_SPORTS_STANDBY=true`. |
+| API-Football / API-Sports | Elenco atual e foto oficial do jogador pelo endpoint `GET /players/squads?team={id}`. | Importacao interna, paginada por selecao e limitada a 90 requisicoes por dia. |
+| WorldCup26 | Contingencia de placar e status de partidas ja iniciadas que ainda estejam pendentes. | Atualiza tambem o resultado final quando a resposta traz placar valido, inclusive se a fonte principal falhar. Nao importa eventos individuais de gol. |
+
+Nenhuma dessas APIs e chamada pelo frontend. A funcao grava os dados no Supabase, que os entrega a interface via Realtime.
+
+Para habilitar a importacao de escalacoes pela API-Football, sao necessarios `FOOTBALL_API_KEY`, `FOOTBALL_API_LEAGUE_ID` e `FOOTBALL_API_SEASON`, alem de remover ou definir `API_SPORTS_STANDBY` como diferente de `true`.
+
 ### `recalculate-scores`
 
 Recalcula a pontuacao de um jogo.
@@ -129,11 +146,14 @@ Feedback ao vivo:
 - `prediction_scores.is_final = true`: jogo finalizado; pontuacao definitiva.
 - `prediction_scores.status`: `correct`, `partial`, `wrong` ou `inverse_penalty`.
 - `prediction_scores.score_reason`: texto pronto para explicar o estado ao usuario.
+- O placar sincronizado pode diminuir quando o provedor corrige um gol anulado pelo VAR; a resposta mais recente substitui o valor anterior.
 
 ## Economia de Requests
 
 - A UI nao chama API de futebol.
 - A sincronizacao externa roda no backend/script e grava no Supabase.
+- A API-Football so consulta escalacoes pendentes de jogos finalizados e respeita um intervalo minimo entre tentativas.
+- A WorldCup26 reconcilia partidas passadas ainda marcadas como agendadas, ao vivo ou no intervalo; partidas ja finalizadas no banco nao sao sobrescritas.
 - A classificacao e calculada localmente a partir dos jogos importados.
 - O frontend busca dados iniciais uma vez e depois usa Realtime.
 - Ranking deve ser recarregado com debounce quando `prediction_scores` mudar.

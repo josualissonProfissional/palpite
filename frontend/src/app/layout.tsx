@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Barlow, Barlow_Condensed } from "next/font/google";
 import { CreatorFooter } from "@/components/palpite/creator-footer";
 import { ThemeProvider } from "@/components/palpite/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { AppLoadingScreen } from "@/components/palpite/app-loading";
 import "./globals.css";
 
 const barlow = Barlow({
@@ -42,7 +44,9 @@ export default function RootLayout({
       <body className="min-h-full">
         <ThemeProvider>
           <TooltipProvider>
-            {children}
+            <Suspense fallback={<AppLoadingScreen />}>
+              {children}
+            </Suspense>
             <CreatorFooter />
             <Toaster richColors position="top-right" />
           </TooltipProvider>

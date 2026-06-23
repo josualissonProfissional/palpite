@@ -86,18 +86,22 @@ export function BestPlayerRulesForm({ groupId, rules, canManage }: {
 
   const selectedRound = useMemo(() => rounds.find((round) => round.name === roundName), [roundName, rounds]);
 
+  async function persistRules() {
+    const { data, error } = await createClient().schema("palpite").from("best_player_rules").update({
+      daily_voting_enabled: values.dailyVotingEnabled,
+      round_team_voting_enabled: values.roundTeamVotingEnabled,
+      points_per_average_hit: values.pointsPerAverageHit,
+      allow_daily_vote_edit_before_close: values.allowDailyVoteEditBeforeClose,
+      allow_round_vote_edit_before_close: values.allowRoundVoteEditBeforeClose,
+      respect_player_position: values.respectPlayerPosition,
+    }).eq("group_id", groupId).select("group_id").maybeSingle();
+    if (error || !data) throw error ?? new Error("Regras não alteradas.");
+  }
+
   async function saveRules() {
     setSaving(true);
     try {
-      const { data, error } = await createClient().schema("palpite").from("best_player_rules").update({
-        daily_voting_enabled: values.dailyVotingEnabled,
-        round_team_voting_enabled: values.roundTeamVotingEnabled,
-        points_per_average_hit: values.pointsPerAverageHit,
-        allow_daily_vote_edit_before_close: values.allowDailyVoteEditBeforeClose,
-        allow_round_vote_edit_before_close: values.allowRoundVoteEditBeforeClose,
-        respect_player_position: values.respectPlayerPosition,
-      }).eq("group_id", groupId).select("group_id").maybeSingle();
-      if (error || !data) throw error ?? new Error("Regras não alteradas.");
+      await persistRules();
       toast.success("Regras dos melhores jogadores salvas.");
       router.refresh();
     } catch (error) {
@@ -112,6 +116,9 @@ export function BestPlayerRulesForm({ groupId, rules, canManage }: {
     if (openMode === "scheduled" && !scheduledAt) return toast.error("Informe a data e o horário de abertura.");
     setConfiguring(true);
     try {
+      // The configuration card appears as soon as the switch is enabled locally.
+      // Persist the switch first so the Edge Function sees the same state as the UI.
+      await persistRules();
       const { error } = await createClient().functions.invoke("configure-round-voting", {
         body: {
           group_id: groupId,
@@ -122,7 +129,7 @@ export function BestPlayerRulesForm({ groupId, rules, canManage }: {
         },
       });
       if (error) throw error;
-      toast.success("Período de votação do Time da Rodada salvo.");
+      toast.success("Time da Rodada ativado e período de votação salvo.");
       router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível configurar a rodada.");
@@ -145,7 +152,7 @@ export function BestPlayerRulesForm({ groupId, rules, canManage }: {
         {switches.map(([key, title, description]) => (
           <div key={key} className="flex items-center justify-between gap-3 rounded-lg border bg-background/60 p-3">
             <div><div className="font-semibold">{title}</div><div className="text-xs text-muted-foreground">{description}</div></div>
-            <Switch checked={Boolean(values[key])} onCheckedChange={(checked) => setValues((current) => ({ ...current, [key]: checked }))} disabled={!canManage || saving} />
+            <Switch checked={Boolean(values[key])} onCheckedChange={(checked) => setValues((current) => ({ ...current, [key]: checked }))} disabled={!canManage || saving || configuring} />
           </div>
         ))}
         <div className="space-y-2 rounded-lg border bg-background/60 p-3">
@@ -153,7 +160,7 @@ export function BestPlayerRulesForm({ groupId, rules, canManage }: {
           <Input id="points-per-average-hit" type="number" min={0} max={100} value={values.pointsPerAverageHit} onChange={(event) => setValues((current) => ({ ...current, pointsPerAverageHit: Number(event.target.value) }))} disabled={!canManage || saving} />
         </div>
       </div>
-      {canManage ? <Button onClick={saveRules} disabled={saving}><SaveIcon />{saving ? "Salvando..." : "Salvar regras dos times"}</Button> : null}
+      {canManage ? <Button onClick={saveRules} disabled={saving || configuring}><SaveIcon />{saving ? "Salvando..." : "Salvar regras dos times"}</Button> : null}
 
       {canManage && values.roundTeamVotingEnabled ? (
         <div className="space-y-5 rounded-2xl border border-amber-300/60 bg-gradient-to-br from-amber-50 via-background to-emerald-50/70 p-4 shadow-sm dark:from-amber-950/30 dark:via-background dark:to-emerald-950/20 sm:p-5">
@@ -200,7 +207,7 @@ export function BestPlayerRulesForm({ groupId, rules, canManage }: {
               </Select>
             </div>
           </div>
-          <Button onClick={configureRound} disabled={configuring}><CalendarClockIcon />{configuring ? "Salvando..." : "Salvar período de votação"}</Button>
+          <Button onClick={configureRound} disabled={configuring}><CalendarClockIcon />{configuring ? "Salvando..." : "Ativar e salvar período"}</Button>
         </div>
       ) : null}
     </div>

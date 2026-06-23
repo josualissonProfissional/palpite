@@ -1,5 +1,5 @@
-import { RouteLoadingScreen } from "@/components/palpite/backend-loading";
+import { AppLoadingScreen } from "@/components/palpite/app-loading";
 
 export default function SignupLoading() {
-  return <RouteLoadingScreen label="Preparando cadastro..." />;
+  return <AppLoadingScreen label="Preparando cadastro..." />;
 }
