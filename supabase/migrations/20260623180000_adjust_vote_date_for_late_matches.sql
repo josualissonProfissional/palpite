@@ -148,3 +148,19 @@ begin
   return jsonb_build_object('opened', v_opened, 'closed', v_closed, 'finalized', v_finalized);
 end;
 $$;
+
+-- Limpa links de partidas das janelas diarias para que sejam recriados
+-- com a nova logica de match_day
+delete from palpite.best_player_window_matches
+where window_id in (
+  select id from palpite.best_player_voting_windows where kind = 'daily'
+);
+
+-- Remove janelas diarias que ficaram sem partidas (votacao nao abriu)
+-- para que sejam recriadas com a data corrigida
+delete from palpite.best_player_voting_windows
+where kind = 'daily'
+  and status = 'scheduled'
+  and id not in (
+    select distinct window_id from palpite.best_player_window_matches
+  );
