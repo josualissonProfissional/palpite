@@ -25,3 +25,16 @@ export async function createClient() {
     }
   );
 }
+
+// Cliente com service_role para operacoes administrativas (RPCs restritas)
+export async function createAdminClient() {
+  const { createClient: createSupabaseClient } = await import("@supabase/supabase-js");
+  return createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+      auth: { persistSession: false, autoRefreshToken: false },
+      db: { schema: "palpite" },
+    }
+  );
+}
