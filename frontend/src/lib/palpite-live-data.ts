@@ -902,9 +902,20 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
   async function loadPlayers(ids: string[], matchIds: string[] = []): Promise<BestPlayer[]> {
     if (ids.length === 0) return [];
     const uniqueIds = Array.from(new Set(ids));
-    const { data } = await db.from("players")
-      .select("id,name,position,shirt_number,photo_url,team_id,team:team_id(name,country,logo_url)")
-      .in("id", uniqueIds).order("name");
+    // Carrega em lotes de 100 para evitar o limite do PostgREST
+    const chunkSize = 100;
+    const chunks: string[][] = [];
+    for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+      chunks.push(uniqueIds.slice(i, i + chunkSize));
+    }
+    const playerChunks = await Promise.all(
+      chunks.map((chunk) =>
+        db.from("players")
+          .select("id,name,position,shirt_number,photo_url,team_id,team:team_id(name,country,logo_url)")
+          .in("id", chunk).order("name")
+      )
+    );
+    const data = playerChunks.flatMap((chunk) => (chunk.data ?? []) as unknown[]);
     const statusByPlayerId = new Map<string, BestPlayer["participationStatus"]>();
     if (matchIds.length > 0) {
       const { data: appearances } = await db.from("match_player_appearances")
