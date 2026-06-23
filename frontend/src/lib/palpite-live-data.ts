@@ -1055,7 +1055,11 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
   let dailyScore: BestPlayerPageData["score"] = null;
   let dailyBallotCount = 0;
   let dailyGroupTeams: BestPlayerGroupTeam[] = [];
-  const finalizedDailyForResult = windows.filter((w) => w.kind === "daily" && w.status === "finalized")[0] ?? null;
+  // Coleta todas as janelas diarias finalized/closed em ordem (mais recente primeiro)
+  const finalizedDailyWindows = windows.filter(
+    (w) => w.kind === "daily" && (w.status === "finalized" || w.status === "closed")
+  );
+  const finalizedDailyForResult = finalizedDailyWindows[0] ?? null;
   if (finalizedDailyForResult) {
     const dailyMatchIds = await db.from("best_player_window_matches")
       .select("match_id").eq("window_id", finalizedDailyForResult.id);
@@ -1139,15 +1143,10 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
     dailyResultFormation = (finalizedDailyForResult.result_formation as BestPlayerFormation) ?? null;
   }
 
-
   let lastFinalizedDaily: BestPlayerPageData["lastFinalizedDaily"] = null;
   let lastFinalizedDailyJson: string | null = null;
   let olderFinalizedDailyJson: string | null = null;
-  const finalizedDaily = windows.find(
-    (w) => w.kind === "daily" && w.status === "finalized" && w.id !== dailyRow?.id
-  ) ?? windows.find(
-    (w) => w.kind === "daily" && w.status === "closed" && w.id !== dailyRow?.id
-  );
+  const finalizedDaily = finalizedDailyWindows[1] ?? null;
   if (finalizedDaily) {
     const lastWin = toBestPlayerWindow(finalizedDaily);
     const [
@@ -1251,9 +1250,7 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
     };
     lastFinalizedDailyJson = JSON.stringify(lastFinalizedDaily);
 
-  const olderFinalized = windows.filter(
-    (w) => w.kind === "daily" && (w.status === "finalized" || w.status === "closed") && w.id !== dailyRow?.id && w.id !== finalizedDaily?.id
-  )[0] ?? null;
+  const olderFinalized = finalizedDailyWindows[2] ?? null;
   if (olderFinalized) {
     const olderWin = toBestPlayerWindow(olderFinalized);
     const [
