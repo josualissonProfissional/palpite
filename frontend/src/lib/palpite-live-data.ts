@@ -833,7 +833,7 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
 
   const windows = (windowsResponse.data ?? []) as unknown as BestPlayerDbWindow[];
   const statusWeight: Record<BestPlayerWindow["status"], number> = {
-    open: 0, finalized: 1, scheduled: 2, closed: 3, cancelled: 4,
+    open: 0, scheduled: 1, closed: 2, finalized: 3, cancelled: 4,
   };
   const chooseWindow = (kind: "daily" | "round") => windows
     .filter((window) => window.kind === kind)
@@ -923,8 +923,8 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
   let dailyPlayers: BestPlayer[] = [];
   if (dailyRow) {
     const [{ data: windowPlayers }, { data: windowMatches }] = await Promise.all([
-      db.from("best_player_window_players").select("player_id").eq("window_id", pendingSource.id),
-      db.from("best_player_window_matches").select("match_id").eq("window_id", pendingSource.id),
+      db.from("best_player_window_players").select("player_id").eq("window_id", dailyRow.id),
+      db.from("best_player_window_matches").select("match_id").eq("window_id", dailyRow.id),
     ]);
     dailyPlayers = await loadPlayers(
       (windowPlayers ?? []).map((row) => row.player_id),
@@ -1041,9 +1041,10 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
   let dailyScore: BestPlayerPageData["score"] = null;
   let dailyBallotCount = 0;
   let dailyGroupTeams: BestPlayerGroupTeam[] = [];
-  if (dailyRow?.status === "finalized") {
+  const finalizedDailyForResult = windows.filter((w) => w.kind === "daily" && w.status === "finalized")[0] ?? null;
+  if (finalizedDailyForResult) {
     const dailyMatchIds = await db.from("best_player_window_matches")
-      .select("match_id").eq("window_id", pendingSource.id);
+      .select("match_id").eq("window_id", finalizedDailyForResult.id);
     const dailyMatchIdList = (dailyMatchIds.data ?? []).map((row: { match_id: string }) => row.match_id);
     const [
       { data: dailyResultRows },
@@ -1053,13 +1054,13 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
     ] = await Promise.all([
       db.from("best_player_results")
         .select("player_id,slot_index,selected_role,round_votes,daily_votes_tiebreak")
-        .eq("window_id", pendingSource.id).order("slot_index"),
+        .eq("window_id", finalizedDailyForResult.id).order("slot_index"),
       db.from("best_player_scores")
-        .select("hits,points").eq("window_id", pendingSource.id).eq("user_id", authData.user.id).maybeSingle(),
+        .select("hits,points").eq("window_id", finalizedDailyForResult.id).eq("user_id", authData.user.id).maybeSingle(),
       db.from("best_player_ballots")
-        .select("id,user_id,formation").eq("window_id", pendingSource.id).order("submitted_at"),
+        .select("id,user_id,formation").eq("window_id", finalizedDailyForResult.id).order("submitted_at"),
       db.from("best_player_scores")
-        .select("user_id,hits,points").eq("window_id", pendingSource.id),
+        .select("user_id,hits,points").eq("window_id", finalizedDailyForResult.id),
     ]);
     dailyBallotCount = (dailyScoreRows as unknown as Array<{user_id: string}> ?? []).length || (dailyBallotRows as unknown as Array<{id: string}> ?? []).length || 0;
     const dailyBallotIdList = ((dailyBallotRows ?? []) as unknown as Array<{id: string; user_id: string}>).map((b) => b.id);
