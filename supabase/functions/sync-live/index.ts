@@ -799,12 +799,32 @@ function findExistingTeamPlayer(players: ExistingTeamPlayer[], apiName?: string 
 function playerNamesMatch(leftName?: string | null, rightName?: string | null) {
   const left = normalizeTeam(leftName).split(" ").filter((token) => token.length > 1);
   const right = normalizeTeam(rightName).split(" ").filter((token) => token.length > 1);
-  if (left.length < 2 || right.length < 2) return false;
-  const firstMatches = left[0] === right[0] || left[0][0] === right[0][0];
-  const lastMatches = left.at(-1) === right.at(-1);
-  if (firstMatches && lastMatches) return true;
-  const commonTokens = left.filter((token) => right.includes(token));
-  return commonTokens.length >= 2;
+
+  // Full name vs full name: require both sides to have at least 2 tokens
+  if (left.length >= 2 && right.length >= 2) {
+    const firstMatches = left[0] === right[0] || left[0][0] === right[0][0];
+    const lastMatches = left.at(-1) === right.at(-1);
+    if (firstMatches && lastMatches) return true;
+    const commonTokens = left.filter((token) => right.includes(token));
+    return commonTokens.length >= 2;
+  }
+
+  // Abbreviated name fallback: when one side has a single token
+  // (e.g. "C. Ronaldo" -> ["ronaldo"]), match against the last name
+  // of the full-name side (e.g. "Cristiano Ronaldo" -> ["cristiano", "ronaldo"]).
+  if (left.length === 1 && right.length >= 2) {
+    return left[0] === right.at(-1);
+  }
+  if (right.length === 1 && left.length >= 2) {
+    return right[0] === left.at(-1);
+  }
+
+  // Both sides have a single token: simple equality
+  if (left.length === 1 && right.length === 1) {
+    return left[0] === right[0];
+  }
+
+  return false;
 }
 
 function dateInRecife(value: string) {

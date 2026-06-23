@@ -1,4 +1,4 @@
-import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import {
   type BestPlayer,
   type BestPlayerFormation,
@@ -825,13 +825,9 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
       .eq("group_id", groupId)
       .order("created_at", { ascending: false }),
   ]);
-
-  // Dispara a finalizacao de janelas expiradas com service_role
+  // Dispara a finalizacao de janelas expiradas via API route (service_role)
   try {
-    const adminClient = await createAdminClient();
-    const adminDb = adminClient.schema("palpite");
-    await adminDb.rpc("process_best_player_windows");
-    await adminDb.rpc("process_best_player_windows");
+    await fetch(new URL("/api/finalize-windows", process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").toString(), { method: "POST" });
     const { data: refreshed } = await db.from("best_player_voting_windows")
       .select("id,kind,vote_date,round_name,status,opened_at,closes_at,duration_minutes,eligibility_source,allow_edit_snapshot,respect_position_snapshot,result_formation,group_id")
       .eq("group_id", groupId)
