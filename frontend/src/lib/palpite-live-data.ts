@@ -883,7 +883,7 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
         .select("match_date, home_team:home_team_id(name), away_team:away_team_id(name)")
         .in("id", pendingIds)
         .not("status", "in", '("finished","cancelled","postponed")')
-        .order("match_date")
+        .order("match_date", { ascending: false })
         .limit(1);
       if (matchData?.[0]) {
         const row = matchData[0] as any;
