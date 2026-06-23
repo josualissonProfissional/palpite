@@ -770,7 +770,7 @@ export type BestPlayerPageData = {
     groupTeams: BestPlayerGroupTeam[];
   } | null;
   lastFinalizedDailyJson: string | null;
-  olderFinalizedDailyJson: string | null;
+  pastDaysResultsJson: string[];
 };
 
 const defaultBestPlayerRules: BestPlayerRules = {
@@ -806,7 +806,7 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
     dailyGroupTeams: [],
     lastFinalizedDaily: null,
     lastFinalizedDailyJson: null,
-    olderFinalizedDailyJson: null,
+    pastDaysResultsJson: [],
   };
   if (!hasSupabaseEnv() || !groupId) return empty;
 
@@ -1162,7 +1162,7 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
 
   let lastFinalizedDaily: BestPlayerPageData["lastFinalizedDaily"] = null;
   let lastFinalizedDailyJson: string | null = null;
-  let olderFinalizedDailyJson: string | null = null;
+  const pastDaysResultsJson: string[] = [];
   const finalizedDaily = finalizedDailyWindows[1] ?? null;
   if (finalizedDaily) {
     const lastWin = toBestPlayerWindow(finalizedDaily);
@@ -1267,84 +1267,39 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
     };
     lastFinalizedDailyJson = JSON.stringify(lastFinalizedDaily);
 
-  const olderFinalized = finalizedDailyWindows[2] ?? null;
-  if (olderFinalized) {
-    const olderWin = toBestPlayerWindow(olderFinalized);
-    const [
-      { data: olderResultRows },
-      { data: olderBallotRows },
-      { data: olderScoreRows },
-    ] = await Promise.all([
-      db.from("best_player_results")
-        .select("player_id,slot_index,selected_role,round_votes,daily_votes_tiebreak")
-        .eq("window_id", olderFinalized.id).order("slot_index"),
-      db.from("best_player_ballots")
-        .select("id,user_id,formation").eq("window_id", olderFinalized.id).order("submitted_at"),
-      db.from("best_player_scores")
-        .select("user_id,hits,points").eq("window_id", olderFinalized.id),
-    ]);
-    const olderBallotCnt = (olderScoreRows as unknown as Array<{user_id: string}> ?? []).length || (olderBallotRows as unknown as Array<{id: string}> ?? []).length || 0;
-    if (olderBallotCnt >= 2) {
-      const olderBallotIdList = ((olderBallotRows ?? []) as unknown as Array<{id: string; user_id: string}>).map((b) => b.id);
-      const olderUserIdList = ((olderBallotRows ?? []) as unknown as Array<{user_id: string}>).map((b) => b.user_id);
-      const [
-        { data: olderAllSelections },
-        { data: olderProfiles },
-      ] = await Promise.all([
-        olderBallotIdList.length > 0
-          ? db.from("best_player_ballot_players")
-            .select("ballot_id,player_id,slot_index,selected_role").in("ballot_id", olderBallotIdList).order("slot_index")
-          : Promise.resolve({ data: [] }),
-        olderUserIdList.length > 0
-          ? db.from("profiles").select("id,full_name,nickname,avatar_url").in("id", olderUserIdList)
-          : Promise.resolve({ data: [] }),
+  }
+  for (let i = 2; i < Math.min(finalizedDailyWindows.length, 7); i++) {
+    const pastWindow = finalizedDailyWindows[i];
+    if (!pastWindow) continue;
+    const pastWin = toBestPlayerWindow(pastWindow);
+    try {
+      const [{ data: pResultRows }, { data: pBallotRows }, { data: pScoreRows }] = await Promise.all([
+        db.from("best_player_results").select("player_id,slot_index,selected_role,round_votes,daily_votes_tiebreak").eq("window_id", pastWindow.id).order("slot_index"),
+        db.from("best_player_ballots").select("id,user_id,formation").eq("window_id", pastWindow.id).order("submitted_at"),
+        db.from("best_player_scores").select("user_id,hits,points").eq("window_id", pastWindow.id),
       ]);
-      const { data: olderMatches } = await db.from("best_player_window_matches")
-        .select("match_id").eq("window_id", olderFinalized.id);
-      const olderMatchIds = (olderMatches ?? []).map((row: { match_id: string }) => row.match_id);
-      const olderSharedPlayerIds = ((olderAllSelections ?? []) as unknown as Array<{player_id: string}>).map((s) => s.player_id);
-      const olderResultPlayers = await loadPlayers(
-        [...((olderResultRows ?? []) as unknown as Array<{player_id: string}>).map((r) => r.player_id), ...olderSharedPlayerIds],
-        olderMatchIds,
-      );
-      const olderById = new Map(olderResultPlayers.map((p) => [p.id, p]));
-      const olderResult: BestPlayerResultRow[] = ((olderResultRows ?? []) as unknown as Array<{
-        player_id: string; slot_index: number; selected_role: string;
-        round_votes: number; daily_votes_tiebreak: number;
-      }>).flatMap((row) => {
-        const player = olderById.get(row.player_id);
-        return player ? [{
-          playerId: row.player_id, slotIndex: row.slot_index,
-          selectedRole: row.selected_role as BestPlayerSelection["selectedRole"],
-          player, roundVotes: row.round_votes, dailyVotesTiebreak: row.daily_votes_tiebreak,
-        }] : [];
-      });
-      const olderProfileById = new Map(((olderProfiles ?? []) as unknown as Array<{id: string; full_name?: string; nickname?: string; avatar_url?: string}>).map((p) => [p.id, p]));
-      const olderScoreByUserId = new Map(((olderScoreRows ?? []) as unknown as Array<{user_id: string; hits: number; points: number}>).map((s) => [s.user_id, s]));
-      const olderSelectionsByBallotId = new Map<string, BestPlayerSelection[]>();
-      for (const s of ((olderAllSelections ?? []) as unknown as Array<{ballot_id: string; player_id: string; slot_index: number; selected_role: string}>)) {
-        const current = olderSelectionsByBallotId.get(s.ballot_id) ?? [];
-        current.push({ playerId: s.player_id, slotIndex: s.slot_index, selectedRole: s.selected_role as BestPlayerSelection["selectedRole"] });
-        olderSelectionsByBallotId.set(s.ballot_id, current);
-      }
-      const olderGroupTeams: BestPlayerGroupTeam[] = ((olderBallotRows ?? []) as unknown as Array<{id: string; user_id: string; formation: string}>).map((ballot) => {
-        const profile = olderProfileById.get(ballot.user_id);
-        const userScore = olderScoreByUserId.get(ballot.user_id);
-        return {
-          userId: ballot.user_id, displayName: profile?.full_name || profile?.nickname || "Participante",
-          avatarUrl: profile?.avatar_url ?? undefined, formation: ballot.formation as BestPlayerFormation,
-          selections: olderSelectionsByBallotId.get(ballot.id) ?? [],
-          hits: userScore?.hits ?? 0, points: userScore?.points ?? 0,
-        };
-      }).sort((a, b) => b.points - a.points || a.displayName.localeCompare(b.displayName, "pt-BR"));
-      olderFinalizedDailyJson = JSON.stringify({
-        window: olderWin, result: olderResult, score: null,
-        ballotCount: olderBallotCnt, groupTeams: olderGroupTeams, allPlayers: olderResultPlayers,
-      });
-    }
+      const pBallotCnt = (pScoreRows as any[] ?? []).length || (pBallotRows as any[] ?? []).length || 0;
+      if (pBallotCnt < 1) continue;
+      const pBallotIds = (pBallotRows as any[] ?? []).map((b: any) => b.id);
+      const pUserIds = (pBallotRows as any[] ?? []).map((b: any) => b.user_id);
+      const [{ data: pAllSelections }, { data: pProfiles }] = await Promise.all([
+        pBallotIds.length > 0 ? db.from("best_player_ballot_players").select("ballot_id,player_id,slot_index,selected_role").in("ballot_id", pBallotIds).order("slot_index") : Promise.resolve({ data: [] }),
+        pUserIds.length > 0 ? db.from("profiles").select("id,full_name,nickname,avatar_url").in("id", pUserIds) : Promise.resolve({ data: [] }),
+      ]);
+      const { data: pMatches } = await db.from("best_player_window_matches").select("match_id").eq("window_id", pastWindow.id);
+      const pMatchIds = (pMatches ?? []).map((row: any) => row.match_id);
+      const pSharedIds = (pAllSelections as any[] ?? []).map((s: any) => s.player_id);
+      const pPlayers = await loadPlayers([...(pResultRows as any[] ?? []).map((r: any) => r.player_id), ...pSharedIds], pMatchIds);
+      const pById = new Map(pPlayers.map((p) => [p.id, p]));
+      const pResult = (pResultRows as any[] ?? []).flatMap((row: any) => { const pl = pById.get(row.player_id); return pl ? [{ playerId: row.player_id, slotIndex: row.slot_index, selectedRole: row.selected_role, player: pl, roundVotes: row.round_votes, dailyVotesTiebreak: row.daily_votes_tiebreak }] : []; });
+      const pProfileById = new Map((pProfiles as any[] ?? []).map((p: any) => [p.id, p]));
+      const pScoreByUserId = new Map((pScoreRows as any[] ?? []).map((s: any) => [s.user_id, s]));
+      const pSelectionsByBallot = new Map<string, any[]>();
+      for (const s of (pAllSelections as any[] ?? [])) { const cur = pSelectionsByBallot.get(s.ballot_id) ?? []; cur.push({ playerId: s.player_id, slotIndex: s.slot_index, selectedRole: s.selected_role }); pSelectionsByBallot.set(s.ballot_id, cur); }
+      const pGroupTeams = (pBallotRows as any[] ?? []).map((b: any) => { const prof = pProfileById.get(b.user_id); const sc = pScoreByUserId.get(b.user_id); return { userId: b.user_id, displayName: prof?.full_name || prof?.nickname || "Participante", avatarUrl: prof?.avatar_url, formation: b.formation, selections: pSelectionsByBallot.get(b.id) ?? [], hits: sc?.hits ?? 0, points: sc?.points ?? 0 }; }).sort((a: any, b: any) => b.points - a.points || a.displayName.localeCompare(b.displayName, "pt-BR"));
+      pastDaysResultsJson.push(JSON.stringify({ window: pastWin, result: pResult, score: null, ballotCount: pBallotCnt, groupTeams: pGroupTeams, allPlayers: pPlayers }));
+    } catch (_e) { /* skip */ }
   }
-  }
-
   const [dailyVote, roundVote] = await Promise.all([loadVote(dailyRow?.id), loadVote(roundRow?.id)]);
 
   // Aplica o status efetivo (considerando closes_at expirado) para a UI
@@ -1376,7 +1331,7 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
     dailyBallotCount,
     dailyGroupTeams,
     lastFinalizedDailyJson,
-    olderFinalizedDailyJson,
+    pastDaysResultsJson,
     lastFinalizedDaily,
   };
 }

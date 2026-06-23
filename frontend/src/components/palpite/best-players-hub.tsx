@@ -111,12 +111,9 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
   // Compartilhamento do resultado anterior
 
   // Segundo dia anterior (paginacao)
-  const older = useMemo(() => {
-    try { return data.olderFinalizedDailyJson ? JSON.parse(data.olderFinalizedDailyJson) : null; }
-    catch { return null; }
-  }, [data.olderFinalizedDailyJson]) as typeof data.lastFinalizedDaily;
-  const [showingOlder, setShowingOlder] = useState(false);
-  const activePrevious = showingOlder && older ? older : last;
+  const pastDays = useMemo(() => data.pastDaysResultsJson.map((j: string) => { try { return JSON.parse(j); } catch { return null; } }).filter(Boolean) as any[], [data.pastDaysResultsJson]);
+  const [pastDayIdx, setPastDayIdx] = useState(0);
+  const activePrevious = pastDayIdx > 0 ? pastDays[pastDayIdx - 1] : last;
   const activePreviousSelections = useMemo(() => activePrevious?.result.map(({ playerId, slotIndex, selectedRole }: any) => ({ playerId, slotIndex, selectedRole })) ?? [], [activePrevious]);
   const activePreviousPlayers = useMemo(() => activePrevious?.allPlayers ?? [], [activePrevious]);
   const activePreviousStats = useMemo(() => {
@@ -290,10 +287,10 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 <div className="font-heading text-lg font-bold">Resultado anterior — {activePrevious.window.voteDate}</div>
-                {(older || showingOlder) ? (
+                {(pastDays.length > 0) ? (
                   <div className="flex gap-1">
-                    <Button size="sm" variant={showingOlder ? "default" : "outline"} onClick={() => setShowingOlder(false)} disabled={!showingOlder} className="text-xs h-7 px-2">Ontem</Button>
-                    <Button size="sm" variant={showingOlder ? "outline" : "default"} onClick={() => setShowingOlder(true)} disabled={showingOlder || !older} className="text-xs h-7 px-2">{older?.window.voteDate ?? "Anterior"}</Button>
+                    <Button size="sm" variant="outline" onClick={() => setPastDayIdx(Math.max(0, pastDayIdx - 1))} disabled={pastDayIdx === 0} className="text-xs h-7 px-2">◀</Button>
+                    <span className="text-xs font-bold px-2">{pastDayIdx === 0 ? "Ontem" : pastDays[pastDayIdx - 1]?.window?.voteDate ?? ""}</span><Button size="sm" variant="outline" onClick={() => setPastDayIdx(Math.min(pastDays.length, pastDayIdx + 1))} disabled={pastDayIdx >= pastDays.length} className="text-xs h-7 px-2">▶</Button>
                   </div>
                 ) : null}
               </div>
