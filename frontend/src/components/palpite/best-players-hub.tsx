@@ -243,7 +243,7 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
                 </CardContent>
               </Card>
             ) : null}
-            <BestTeamViewer title="Time do Dia da Galera" formation={data.dailyWindow.resultFormation || data.dailyResultFormation || "4-3-3"} players={dailyResultPlayers} selections={dailyResultSelections} subtitle={data.dailyWindow.voteDate} score={data.dailyScore ?? undefined} playerStats={dailyResultStats} />
+            <BestTeamViewer title="Time do Dia da Galera" formation={data.dailyWindow.resultFormation || data.dailyResultFormation || "4-3-3"} players={dailyResultPlayers} selections={dailyResultSelections} subtitle={data.dailyResultVoteDate || data.dailyWindow.voteDate} score={data.dailyScore ?? undefined} playerStats={dailyResultStats} />
             {data.dailyGroupTeams.length > 0 ? (
               <Card>
                 <CardHeader><CardTitle className="flex items-center gap-2"><UsersIcon className="text-emerald-600" />Placar do dia</CardTitle></CardHeader>
@@ -269,7 +269,7 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
                   {effectiveGroupTeam ? (
                     <>
                       <div className="border-t pt-3" />
-                      <BestTeamViewer title="Time do Dia" ownerName={effectiveGroupTeam.displayName} formation={effectiveGroupTeam.formation} players={dailyResultPlayers} selections={effectiveGroupTeam.selections} subtitle={data.dailyWindow.voteDate} score={{ hits: effectiveGroupTeam.hits, points: effectiveGroupTeam.points }} />
+                      <BestTeamViewer title="Time do Dia" ownerName={effectiveGroupTeam.displayName} formation={effectiveGroupTeam.formation} players={dailyResultPlayers} selections={effectiveGroupTeam.selections} subtitle={data.dailyResultVoteDate || data.dailyWindow.voteDate} score={{ hits: effectiveGroupTeam.hits, points: effectiveGroupTeam.points }} />
                     </>
                   ) : null}
                 </CardContent>
