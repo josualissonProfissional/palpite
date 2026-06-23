@@ -198,7 +198,7 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
           <MessageCard icon={LockIcon} title="Time do Dia desativado" description="O administrador desativou esta votação para o grupo." />
         ) : !data.dailyWindow ? (
           <MessageCard icon={Clock3Icon} title="Aguardando os jogos do dia" description="A votação abre depois que todos os jogos terminarem e os jogadores forem confirmados." />
-        ) : data.dailyWindow.status === "scheduled" ? (
+        ) : data.dailyWindow.status === "scheduled" && data.dailyResult.length !== 11 ? (
           <MessageCard
             icon={Clock3Icon}
             title="Aguardando o fim dos jogos"
