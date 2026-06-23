@@ -768,6 +768,7 @@ export type BestPlayerPageData = {
     groupTeams: BestPlayerGroupTeam[];
   } | null;
   lastFinalizedDailyJson: string | null;
+  olderFinalizedDailyJson: string | null;
 };
 
 const defaultBestPlayerRules: BestPlayerRules = {
@@ -801,6 +802,7 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
     dailyGroupTeams: [],
     lastFinalizedDaily: null,
     lastFinalizedDailyJson: null,
+    olderFinalizedDailyJson: null,
   };
   if (!hasSupabaseEnv() || !groupId) return empty;
 
@@ -831,11 +833,17 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
 
   const windows = (windowsResponse.data ?? []) as unknown as BestPlayerDbWindow[];
   const statusWeight: Record<BestPlayerWindow["status"], number> = {
-    open: 0, scheduled: 1, closed: 2, finalized: 3, cancelled: 4,
+    open: 0, finalized: 1, scheduled: 2, closed: 3, cancelled: 4,
   };
   const chooseWindow = (kind: "daily" | "round") => windows
     .filter((window) => window.kind === kind)
     .sort((a, b) => statusWeight[a.status] - statusWeight[b.status])[0] ?? null;
+
+  // Para notificacao de quando a proxima janela abre, buscamos o primeiro
+  // scheduled independente de qual janela foi escolhida como principal.
+  const nextScheduledDaily = windows
+    .filter((w) => w.kind === "daily" && w.status === "scheduled")
+    .sort((a, b) => new Date(a.vote_date ?? "").getTime() - new Date(b.vote_date ?? "").getTime())[0] ?? null;
   const dailyRow = chooseWindow("daily");
 
   // Forca janelas "open" com closes_at expirado como "closed" para que a UI
@@ -847,9 +855,11 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
     return window.status;
   }
   let dailyPendingMatch: BestPlayerWindow["pendingMatch"] = undefined;
-  if (dailyRow?.status === "scheduled") {
+  // Busca o pending match da proxima janela scheduled (pode ser diferente da dailyRow)
+  const pendingSource = dailyRow?.status === "scheduled" ? dailyRow : nextScheduledDaily;
+  if (pendingSource && pendingSource.vote_date) {
     const { data: pendingMatches } = await db.from("best_player_window_matches")
-      .select("match_id").eq("window_id", dailyRow.id);
+      .select("match_id").eq("window_id", pendingSource.id);
     const pendingIds = (pendingMatches ?? []).map((row) => row.match_id);
     if (pendingIds.length > 0) {
       const { data: matchData } = await db.from("matches")
@@ -913,8 +923,8 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
   let dailyPlayers: BestPlayer[] = [];
   if (dailyRow) {
     const [{ data: windowPlayers }, { data: windowMatches }] = await Promise.all([
-      db.from("best_player_window_players").select("player_id").eq("window_id", dailyRow.id),
-      db.from("best_player_window_matches").select("match_id").eq("window_id", dailyRow.id),
+      db.from("best_player_window_players").select("player_id").eq("window_id", pendingSource.id),
+      db.from("best_player_window_matches").select("match_id").eq("window_id", pendingSource.id),
     ]);
     dailyPlayers = await loadPlayers(
       (windowPlayers ?? []).map((row) => row.player_id),
@@ -1033,7 +1043,7 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
   let dailyGroupTeams: BestPlayerGroupTeam[] = [];
   if (dailyRow?.status === "finalized") {
     const dailyMatchIds = await db.from("best_player_window_matches")
-      .select("match_id").eq("window_id", dailyRow.id);
+      .select("match_id").eq("window_id", pendingSource.id);
     const dailyMatchIdList = (dailyMatchIds.data ?? []).map((row: { match_id: string }) => row.match_id);
     const [
       { data: dailyResultRows },
@@ -1043,13 +1053,13 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
     ] = await Promise.all([
       db.from("best_player_results")
         .select("player_id,slot_index,selected_role,round_votes,daily_votes_tiebreak")
-        .eq("window_id", dailyRow.id).order("slot_index"),
+        .eq("window_id", pendingSource.id).order("slot_index"),
       db.from("best_player_scores")
-        .select("hits,points").eq("window_id", dailyRow.id).eq("user_id", authData.user.id).maybeSingle(),
+        .select("hits,points").eq("window_id", pendingSource.id).eq("user_id", authData.user.id).maybeSingle(),
       db.from("best_player_ballots")
-        .select("id,user_id,formation").eq("window_id", dailyRow.id).order("submitted_at"),
+        .select("id,user_id,formation").eq("window_id", pendingSource.id).order("submitted_at"),
       db.from("best_player_scores")
-        .select("user_id,hits,points").eq("window_id", dailyRow.id),
+        .select("user_id,hits,points").eq("window_id", pendingSource.id),
     ]);
     dailyBallotCount = (dailyScoreRows as unknown as Array<{user_id: string}> ?? []).length || (dailyBallotRows as unknown as Array<{id: string}> ?? []).length || 0;
     const dailyBallotIdList = ((dailyBallotRows ?? []) as unknown as Array<{id: string; user_id: string}>).map((b) => b.id);
@@ -1116,6 +1126,7 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
 
   let lastFinalizedDaily: BestPlayerPageData["lastFinalizedDaily"] = null;
   let lastFinalizedDailyJson: string | null = null;
+  let olderFinalizedDailyJson: string | null = null;
   const finalizedDaily = windows.find(
     (w) => w.kind === "daily" && w.status === "finalized" && w.id !== dailyRow?.id
   ) ?? windows.find(
@@ -1223,6 +1234,85 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
       ballotCount: lastBallotCnt, groupTeams: lastGroupTeams, allPlayers: lastResultPlayers,
     };
     lastFinalizedDailyJson = JSON.stringify(lastFinalizedDaily);
+
+  const olderFinalized = windows.filter(
+    (w) => w.kind === "daily" && (w.status === "finalized" || w.status === "closed") && w.id !== dailyRow?.id && w.id !== finalizedDaily?.id
+  )[0] ?? null;
+  if (olderFinalized) {
+    const olderWin = toBestPlayerWindow(olderFinalized);
+    const [
+      { data: olderResultRows },
+      { data: olderBallotRows },
+      { data: olderScoreRows },
+    ] = await Promise.all([
+      db.from("best_player_results")
+        .select("player_id,slot_index,selected_role,round_votes,daily_votes_tiebreak")
+        .eq("window_id", olderFinalized.id).order("slot_index"),
+      db.from("best_player_ballots")
+        .select("id,user_id,formation").eq("window_id", olderFinalized.id).order("submitted_at"),
+      db.from("best_player_scores")
+        .select("user_id,hits,points").eq("window_id", olderFinalized.id),
+    ]);
+    const olderBallotCnt = (olderScoreRows as unknown as Array<{user_id: string}> ?? []).length || (olderBallotRows as unknown as Array<{id: string}> ?? []).length || 0;
+    if (olderBallotCnt >= 2) {
+      const olderBallotIdList = ((olderBallotRows ?? []) as unknown as Array<{id: string; user_id: string}>).map((b) => b.id);
+      const olderUserIdList = ((olderBallotRows ?? []) as unknown as Array<{user_id: string}>).map((b) => b.user_id);
+      const [
+        { data: olderAllSelections },
+        { data: olderProfiles },
+      ] = await Promise.all([
+        olderBallotIdList.length > 0
+          ? db.from("best_player_ballot_players")
+            .select("ballot_id,player_id,slot_index,selected_role").in("ballot_id", olderBallotIdList).order("slot_index")
+          : Promise.resolve({ data: [] }),
+        olderUserIdList.length > 0
+          ? db.from("profiles").select("id,full_name,nickname,avatar_url").in("id", olderUserIdList)
+          : Promise.resolve({ data: [] }),
+      ]);
+      const { data: olderMatches } = await db.from("best_player_window_matches")
+        .select("match_id").eq("window_id", olderFinalized.id);
+      const olderMatchIds = (olderMatches ?? []).map((row: { match_id: string }) => row.match_id);
+      const olderSharedPlayerIds = ((olderAllSelections ?? []) as unknown as Array<{player_id: string}>).map((s) => s.player_id);
+      const olderResultPlayers = await loadPlayers(
+        [...((olderResultRows ?? []) as unknown as Array<{player_id: string}>).map((r) => r.player_id), ...olderSharedPlayerIds],
+        olderMatchIds,
+      );
+      const olderById = new Map(olderResultPlayers.map((p) => [p.id, p]));
+      const olderResult: BestPlayerResultRow[] = ((olderResultRows ?? []) as unknown as Array<{
+        player_id: string; slot_index: number; selected_role: string;
+        round_votes: number; daily_votes_tiebreak: number;
+      }>).flatMap((row) => {
+        const player = olderById.get(row.player_id);
+        return player ? [{
+          playerId: row.player_id, slotIndex: row.slot_index,
+          selectedRole: row.selected_role as BestPlayerSelection["selectedRole"],
+          player, roundVotes: row.round_votes, dailyVotesTiebreak: row.daily_votes_tiebreak,
+        }] : [];
+      });
+      const olderProfileById = new Map(((olderProfiles ?? []) as unknown as Array<{id: string; full_name?: string; nickname?: string; avatar_url?: string}>).map((p) => [p.id, p]));
+      const olderScoreByUserId = new Map(((olderScoreRows ?? []) as unknown as Array<{user_id: string; hits: number; points: number}>).map((s) => [s.user_id, s]));
+      const olderSelectionsByBallotId = new Map<string, BestPlayerSelection[]>();
+      for (const s of ((olderAllSelections ?? []) as unknown as Array<{ballot_id: string; player_id: string; slot_index: number; selected_role: string}>)) {
+        const current = olderSelectionsByBallotId.get(s.ballot_id) ?? [];
+        current.push({ playerId: s.player_id, slotIndex: s.slot_index, selectedRole: s.selected_role as BestPlayerSelection["selectedRole"] });
+        olderSelectionsByBallotId.set(s.ballot_id, current);
+      }
+      const olderGroupTeams: BestPlayerGroupTeam[] = ((olderBallotRows ?? []) as unknown as Array<{id: string; user_id: string; formation: string}>).map((ballot) => {
+        const profile = olderProfileById.get(ballot.user_id);
+        const userScore = olderScoreByUserId.get(ballot.user_id);
+        return {
+          userId: ballot.user_id, displayName: profile?.full_name || profile?.nickname || "Participante",
+          avatarUrl: profile?.avatar_url ?? undefined, formation: ballot.formation as BestPlayerFormation,
+          selections: olderSelectionsByBallotId.get(ballot.id) ?? [],
+          hits: userScore?.hits ?? 0, points: userScore?.points ?? 0,
+        };
+      }).sort((a, b) => b.points - a.points || a.displayName.localeCompare(b.displayName, "pt-BR"));
+      olderFinalizedDailyJson = JSON.stringify({
+        window: olderWin, result: olderResult, score: null,
+        ballotCount: olderBallotCnt, groupTeams: olderGroupTeams, allPlayers: olderResultPlayers,
+      });
+    }
+  }
   }
 
   const [dailyVote, roundVote] = await Promise.all([loadVote(dailyRow?.id), loadVote(roundRow?.id)]);
@@ -1254,6 +1344,7 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
     dailyBallotCount,
     dailyGroupTeams,
     lastFinalizedDailyJson,
+    olderFinalizedDailyJson,
     lastFinalizedDaily,
   };
 }

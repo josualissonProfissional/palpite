@@ -93,28 +93,36 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
     catch { return null; }
   }, [data.lastFinalizedDailyJson]) as typeof data.lastFinalizedDaily;
 
-  const lastDailySelections = useMemo(() => last?.result.map(({ playerId, slotIndex, selectedRole }: any) => ({ playerId, slotIndex, selectedRole })) ?? [], [last]);
-  const lastDailyPlayers = useMemo(() => last?.allPlayers ?? [], [last]);
-  const lastDailyStats = useMemo(() => {
-    if (!last) return {};
-    return Object.fromEntries(last.result.map((row: any) => [row.playerId, {
+
+  // Compartilhamento do resultado anterior
+
+  // Segundo dia anterior (paginacao)
+  const older = useMemo(() => {
+    try { return data.olderFinalizedDailyJson ? JSON.parse(data.olderFinalizedDailyJson) : null; }
+    catch { return null; }
+  }, [data.olderFinalizedDailyJson]) as typeof data.lastFinalizedDaily;
+  const [showingOlder, setShowingOlder] = useState(false);
+  const activePrevious = showingOlder && older ? older : last;
+  const activePreviousSelections = useMemo(() => activePrevious?.result.map(({ playerId, slotIndex, selectedRole }: any) => ({ playerId, slotIndex, selectedRole })) ?? [], [activePrevious]);
+  const activePreviousPlayers = useMemo(() => activePrevious?.allPlayers ?? [], [activePrevious]);
+  const activePreviousStats = useMemo(() => {
+    if (!activePrevious) return {};
+    return Object.fromEntries(activePrevious.result.map((row: any) => [row.playerId, {
       votes: row.roundVotes,
-      percentage: last.ballotCount > 0 ? Math.min(100, Math.round((row.roundVotes * 1_000) / last.ballotCount) / 10) : 0,
+      percentage: activePrevious.ballotCount > 0 ? Math.min(100, Math.round((row.roundVotes * 1_000) / activePrevious.ballotCount) / 10) : 0,
     }]));
-  }, [last]);
-  const [selectedLastUserId, setSelectedLastUserId] = useState(() => last?.groupTeams[0]?.userId ?? "");
-  const selectedLastTeam = last?.groupTeams.find((t: any) => t.userId === selectedLastUserId) ?? last?.groupTeams[0];
-  const lastCorrectIds = useMemo(() => {
-    if (!selectedLastTeam || !last) return undefined;
-    const resultByPlayer = new Map(last.result.map((r: any) => [r.playerId, r.selectedRole]));
+  }, [activePrevious]);
+  const [selectedPrevUserId, setSelectedPrevUserId] = useState(() => activePrevious?.groupTeams[0]?.userId ?? "");
+  const selectedPrevTeam = activePrevious?.groupTeams.find((t: any) => t.userId === selectedPrevUserId) ?? activePrevious?.groupTeams[0];
+  const prevCorrectIds = useMemo(() => {
+    if (!selectedPrevTeam || !activePrevious) return undefined;
+    const resultByPlayer = new Map(activePrevious.result.map((r: any) => [r.playerId, r.selectedRole]));
     const correct = new Set<string>();
-    for (const s of selectedLastTeam.selections) {
+    for (const s of selectedPrevTeam.selections) {
       if (resultByPlayer.get(s.playerId) === s.selectedRole) correct.add(s.playerId);
     }
     return correct;
-  }, [selectedLastTeam, last]);
-
-  // Compartilhamento do resultado anterior
+  }, [selectedPrevTeam, activePrevious]);
   const captureRef = useRef<HTMLDivElement>(null);
   const [generating, setGenerating] = useState(false);
 
@@ -125,7 +133,7 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
       await new Promise(r => setTimeout(r, 200));
       const dataUrl = await toPng(captureRef.current, { cacheBust: true, pixelRatio: 2 });
       const link = document.createElement("a");
-      link.download = `time-do-dia-${last?.window.voteDate ?? "data"}.png`;
+      link.download = `time-do-dia-${activePrevious?.window.voteDate ?? "data"}.png`;
       link.href = dataUrl;
       link.click();
       toast.success("Imagem salva!");
@@ -135,12 +143,12 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
   }
 
   function buildShareText() {
-    if (!last) return "";
-    const date = last.window.voteDate ?? "";
+    if (!activePrevious) return "";
+    const date = activePrevious?.window.voteDate ?? "";
     const lines = [`🏆 Time do Dia — ${date}`];
-    if (last.score) lines.push(`Meus acertos: ${last.score.hits} · ${last.score.points} pts`);
+    if (activePrevious?.score) lines.push(`Meus acertos: ${activePrevious?.score?.hits} · ${activePrevious?.score?.points} pts`);
     lines.push("", "📋 Placar:");
-    last.groupTeams.forEach((t: any, i: number) => {
+    activePrevious.groupTeams.forEach((t: any, i: number) => {
       const m = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}º`;
       lines.push(`${m} ${t.displayName}: ${t.hits} acertos · ${t.points} pts`);
     });
@@ -202,6 +210,17 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
           <MessageCard icon={Clock3Icon} title="Carregando jogadores" description="A fonte de dados ainda está preparando a lista de jogadores deste dia." />
         ) : data.dailyWindow.status === "finalized" && data.dailyResult.length === 11 && data.dailyWindow.resultFormation ? (
           <>
+            {data.dailyPendingMatch ? (
+              <Card className="border-sky-300 bg-sky-50/80 dark:bg-sky-950/30">
+                <CardContent className="flex items-center gap-3 p-4">
+                  <Clock3Icon className="size-5 shrink-0 text-sky-500" />
+                  <div>
+                    <div className="font-heading text-base font-bold">Próxima votação</div>
+                    <p className="text-sm text-muted-foreground">Abre após {data.dailyPendingMatch.homeName} x {data.dailyPendingMatch.awayName} (início {new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Recife" }).format(new Date(data.dailyPendingMatch.matchDate))})</p>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
             {data.dailyScore ? (
               <Card className="border-amber-300 bg-amber-50/80 dark:bg-amber-950/30">
                 <CardContent className="flex items-center gap-3 p-4 font-heading text-lg font-bold">
@@ -252,10 +271,18 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
         )}
 
         {/* Resultado do dia anterior */}
-        {last && data.dailyWindow?.status !== "finalized" && last.result.length === 11 ? (
+        {activePrevious && data.dailyWindow?.status !== "finalized" && activePrevious.result.length === 11 ? (
           <div className="mt-6 border-t pt-6 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="font-heading text-lg font-bold">Resultado anterior — {last.window.voteDate}</div>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="font-heading text-lg font-bold">Resultado anterior — {activePrevious.window.voteDate}</div>
+                {(older || showingOlder) ? (
+                  <div className="flex gap-1">
+                    <Button size="sm" variant={showingOlder ? "default" : "outline"} onClick={() => setShowingOlder(false)} disabled={!showingOlder} className="text-xs h-7 px-2">Ontem</Button>
+                    <Button size="sm" variant={showingOlder ? "outline" : "default"} onClick={() => setShowingOlder(true)} disabled={showingOlder || !older} className="text-xs h-7 px-2">{older?.window.voteDate ?? "Anterior"}</Button>
+                  </div>
+                ) : null}
+              </div>
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" onClick={handleShareImage} disabled={generating}>
                   {generating ? <DownloadIcon className="animate-pulse" /> : <ImageIcon />}
@@ -271,22 +298,22 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
             {/* Área capturável para imagem */}
             <div ref={captureRef} className="space-y-4 rounded-2xl border bg-card p-4 sm:p-6">
               <div className="text-center">
-                <div className="font-heading text-xl font-black">Time do Dia — {last.window.voteDate}</div>
+                <div className="font-heading text-xl font-black">Time do Dia — {activePrevious.window.voteDate}</div>
               </div>
-              {last.score ? (
+              {activePrevious?.score ? (
                 <Card className="border-amber-300 bg-amber-50/80 dark:bg-amber-950/30">
                   <CardContent className="flex items-center gap-3 p-4 font-heading text-lg font-bold">
                     <SparklesIcon className="size-5 shrink-0 text-amber-500" />
-                    Você acertou {last.score.hits} {last.score.hits === 1 ? "jogador" : "jogadores"} e ganhou {last.score.points} {last.score.points === 1 ? "ponto" : "pontos"}.
+                    Você acertou {activePrevious?.score?.hits} {activePrevious.score.hits === 1 ? "jogador" : "jogadores"} e ganhou {activePrevious?.score?.points} {activePrevious.score.points === 1 ? "ponto" : "pontos"}.
                   </CardContent>
                 </Card>
               ) : null}
-              <BestTeamViewer title="Time do Dia da Galera" formation={last.window.resultFormation ?? "4-3-3"} players={lastDailyPlayers} selections={lastDailySelections} subtitle={last.window.voteDate} score={last.score ?? undefined} playerStats={lastDailyStats} shareable={false} />
-              {last.groupTeams.length > 0 ? (
+              <BestTeamViewer title="Time do Dia da Galera" formation={activePrevious.window.resultFormation ?? "4-3-3"} players={activePreviousPlayers} selections={activePreviousSelections} subtitle={activePrevious.window.voteDate} score={activePrevious?.score ?? undefined} playerStats={activePreviousStats} shareable={false} />
+              {activePrevious.groupTeams.length > 0 ? (
                 <Card>
                   <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><UsersIcon className="text-emerald-600" />Placar do dia</CardTitle></CardHeader>
                   <CardContent className="space-y-1">
-                    {last.groupTeams.map((team: any, index: number) => {
+                    {activePrevious.groupTeams.map((team: any, index: number) => {
                       const m = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : `${index + 1}º`;
                       return (
                         <div key={team.userId} className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 bg-muted/40">
@@ -308,16 +335,16 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
             </div>
 
             {/* Times individuais (fora da captura) */}
-            {last.groupTeams.length > 0 ? (
+            {activePrevious.groupTeams.length > 0 ? (
               <Card>
                 <CardHeader><CardTitle className="flex items-center gap-2"><UsersIcon className="text-emerald-600" />Times do grupo</CardTitle></CardHeader>
                 <CardContent className="space-y-3">
                   <div className="space-y-1">
-                    {last.groupTeams.map((team: any, index: number) => {
-                      const isSelected = selectedLastTeam?.userId === team.userId;
+                    {activePrevious.groupTeams.map((team: any, index: number) => {
+                      const isSelected = selectedPrevTeam?.userId === team.userId;
                       const medal = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : "";
                       return (
-                        <Button key={team.userId} type="button" variant={isSelected ? "default" : "ghost"} className="flex w-full items-center justify-between gap-3 px-4 py-3 h-auto" onClick={() => setSelectedLastUserId(team.userId)}>
+                        <Button key={team.userId} type="button" variant={isSelected ? "default" : "ghost"} className="flex w-full items-center justify-between gap-3 px-4 py-3 h-auto" onClick={() => setSelectedPrevUserId(team.userId)}>
                           <div className="flex items-center gap-3 min-w-0">
                             <span className="shrink-0 w-8 text-center text-sm font-bold tabular-nums">{medal || `${index + 1}º`}</span>
                             <span className="truncate text-sm font-semibold">{team.displayName}</span>
@@ -330,10 +357,10 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
                       );
                     })}
                   </div>
-                  {selectedLastTeam ? (
+                  {selectedPrevTeam ? (
                     <>
                       <div className="border-t pt-3" />
-                      <BestTeamViewer title="Time do Dia" ownerName={selectedLastTeam.displayName} formation={selectedLastTeam.formation} players={lastDailyPlayers} selections={selectedLastTeam.selections} subtitle={last.window.voteDate} score={{ hits: selectedLastTeam.hits, points: selectedLastTeam.points }} correctPlayerIds={lastCorrectIds} />
+                      <BestTeamViewer title="Time do Dia" ownerName={selectedPrevTeam.displayName} formation={selectedPrevTeam.formation} players={activePreviousPlayers} selections={selectedPrevTeam.selections} subtitle={activePrevious.window.voteDate} score={{ hits: selectedPrevTeam.hits, points: selectedPrevTeam.points }} correctPlayerIds={prevCorrectIds} />
                     </>
                   ) : null}
                 </CardContent>
