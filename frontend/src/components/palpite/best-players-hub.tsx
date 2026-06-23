@@ -208,7 +208,7 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
           </>
         ) : dailyOpen ? (
           <MessageCard icon={Clock3Icon} title="Carregando jogadores" description="A fonte de dados ainda está preparando a lista de jogadores deste dia." />
-        ) : data.dailyWindow.status === "finalized" && data.dailyResult.length === 11 && data.dailyWindow.resultFormation ? (
+        ) : data.dailyResult.length === 11 && (data.dailyWindow.resultFormation || data.dailyResultFormation) ? (
           <>
             {data.dailyPendingMatch ? (
               <Card className="border-sky-300 bg-sky-50/80 dark:bg-sky-950/30">
@@ -229,7 +229,7 @@ export function BestPlayersHub({ groupId, data, initialTab }: {
                 </CardContent>
               </Card>
             ) : null}
-            <BestTeamViewer title="Time do Dia da Galera" formation={data.dailyWindow.resultFormation} players={dailyResultPlayers} selections={dailyResultSelections} subtitle={data.dailyWindow.voteDate} score={data.dailyScore ?? undefined} playerStats={dailyResultStats} />
+            <BestTeamViewer title="Time do Dia da Galera" formation={data.dailyWindow.resultFormation || data.dailyResultFormation || "4-3-3"} players={dailyResultPlayers} selections={dailyResultSelections} subtitle={data.dailyWindow.voteDate} score={data.dailyScore ?? undefined} playerStats={dailyResultStats} />
             {data.dailyGroupTeams.length > 0 ? (
               <Card>
                 <CardHeader><CardTitle className="flex items-center gap-2"><UsersIcon className="text-emerald-600" />Placar do dia</CardTitle></CardHeader>

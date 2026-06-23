@@ -755,6 +755,7 @@ export type BestPlayerPageData = {
   score: { hits: number; points: number } | null;
   roundBallotCount: number;
   dailyResult: BestPlayerResultRow[];
+  dailyResultFormation: BestPlayerFormation | null;
   dailyScore: { hits: number; points: number } | null;
   dailyBallotCount: number;
   dailyGroupTeams: BestPlayerGroupTeam[];
@@ -797,6 +798,7 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
     roundBallotCount: 0,
     groupTeams: [],
     dailyResult: [],
+    dailyResultFormation: null,
     dailyScore: null,
     dailyBallotCount: 0,
     dailyGroupTeams: [],
@@ -1038,6 +1040,7 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
 
 
   let dailyResult: BestPlayerResultRow[] = [];
+  let dailyResultFormation: BestPlayerFormation | null = null;
   let dailyScore: BestPlayerPageData["score"] = null;
   let dailyBallotCount = 0;
   let dailyGroupTeams: BestPlayerGroupTeam[] = [];
@@ -1122,6 +1125,7 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
         points: userScore?.points ?? 0,
       };
     }).sort((a, b) => b.points - a.points || a.displayName.localeCompare(b.displayName, "pt-BR"));
+    dailyResultFormation = (finalizedDailyForResult.result_formation as BestPlayerFormation) ?? null;
   }
 
 
@@ -1341,6 +1345,7 @@ export async function getBestPlayerPageData(groupId?: string): Promise<BestPlaye
     roundBallotCount,
     groupTeams,
     dailyResult,
+    dailyResultFormation,
     dailyScore,
     dailyBallotCount,
     dailyGroupTeams,
